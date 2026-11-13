@@ -11,16 +11,17 @@ const DAY_SEC = 240;          // real seconds per in-game day
 const SS = 2;                 // sprite supersampling
 
 const G = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3 };
-const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9, SWALL: 10, SPIKES: 11 };
-const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0];
+const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9, SWALL: 10, SPIKES: 11, LANTERN: 12 };
+const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1];
 // Everything the player can build: name, cost, and what it becomes in the world.
 const BUILD = {
   wall: { name: 'Barricade', cost: { wood: 4 }, hp: 100, desc: 'Cheap wooden barricade' },
   fire: { name: 'Campfire', cost: { wood: 3, stone: 1 }, desc: 'Warmth and light, needs wood' },
   swall: { name: 'Stone Wall', cost: { stone: 5, wood: 1 }, hp: 250, desc: 'Tough: 250 HP' },
   spikes: { name: 'Spike Trap', cost: { wood: 3, scrap: 1 }, desc: 'Hurts zombies that step on it' },
+  lantern: { name: 'Lantern Post', cost: { wood: 2, scrap: 1 }, desc: 'Lights the dark at night, never burns out' },
 };
-const BUILD_ORDER = ['wall', 'fire', 'swall', 'spikes'];
+const BUILD_ORDER = ['wall', 'fire', 'swall', 'spikes', 'lantern'];
 
 const WEAPONS = [
   { id: 'knife', name: 'Hunting Knife', melee: true, cd: 0.42, range: 44, arc: 1.25, dmg: 34 },
@@ -150,6 +151,14 @@ function makeStructureSprites() {
     for (let r = 1; r < 4; r++) g.fillRect(0, r * 12 - 1, T, 1.5);
     g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(0, 0, T, 3);
     g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, T - 3, T, 3);
+  });
+  SPR.lantern = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 9, 3, 0.35);
+    g.fillStyle = '#3a3f47'; g.fillRect(21, 16, 6, 28);
+    g.fillStyle = '#2a2e34'; g.fillRect(17, 42, 14, 4);
+    g.fillStyle = '#ffd27a'; g.beginPath(); g.arc(24, 12, 6, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,220,.8)'; g.beginPath(); g.arc(23, 11, 2.5, 0, 7); g.fill();
+    g.fillStyle = '#3a3f47'; g.beginPath(); g.moveTo(16, 10); g.lineTo(24, 2); g.lineTo(32, 10); g.closePath(); g.fill();
   });
   SPR.spikes = sprite(T, T, (g) => {
     // wooden base with sharpened stakes
@@ -415,6 +424,17 @@ let killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 };
 let spawnT = 0, kills = 0, shake = 0, groanT = 0, time = 0, building = false, gatherCD = 0;
 let buildKind = 'wall';   // 'wall' | 'fire'
 const SAVE_KEY = 'deadhollow_save';
+const DIFF = {
+  easy: { label: 'Easy', hp: 0.7, dmg: 0.7, spawn: 1.4 },
+  normal: { label: 'Normal', hp: 1, dmg: 1, spawn: 1 },
+  hard: { label: 'Hard', hp: 1.3, dmg: 1.25, spawn: 0.75 },
+};
+const DIFF_ORDER = ['easy', 'normal', 'hard'];
+const settings = Object.assign({ difficulty: 'normal', shake: true, minimap: true },
+  (() => { try { return JSON.parse(localStorage.getItem('deadhollow_settings') || '{}'); } catch (e) { return {}; } })());
+function saveSettings() {
+  try { localStorage.setItem('deadhollow_settings', JSON.stringify(settings)); } catch (e) { /* ignore */ }
+}
 let saveT = 15;
 const cam = { x: 0, y: 0 };
 const mouse = { x: 0, y: 0, pressed: false, held: false };
@@ -488,9 +508,9 @@ function spawnZombie() {
   const type = pickType();
   const b = ZTYPES[type];
   if (blockedAt(x, y, b.r + 2)) return;
-  const k = Math.min(4, 1 + 0.06 * (day - 1));
+  const k = Math.min(4, 1 + 0.06 * (day - 1)) * DIFF[settings.difficulty].hp;
   zombies.push({
-    type, x, y, r: b.r, sp: b.sp * Math.min(1.6, 1 + 0.02 * (day - 1)), dmg: b.dmg, cd: b.cd, col: b.col,
+    type, x, y, r: b.r, sp: b.sp * Math.min(1.6, 1 + 0.02 * (day - 1)), dmg: b.dmg * DIFF[settings.difficulty].dmg, cd: b.cd, col: b.col,
     ranged: !!b.ranged, range: b.range || 0,
     hp: b.hp * k, maxHp: b.hp * k, attackCD: 0.3 + Math.random() * 0.5, flash: 0, lunge: 0,
     wob: Math.random() * 6, seed: Math.random() * 1000,
@@ -821,6 +841,9 @@ function tryBuild() {
     world.obs[i] = O.SWALL;
     world.hp.set(i, 250);
     toast('Stone wall raised.');
+  } else if (buildKind === 'lantern') {
+    world.obs[i] = O.LANTERN;
+    toast('Lantern post placed.');
   } else if (buildKind === 'spikes') {
     world.obs[i] = O.SPIKES;
     toast('Spike trap set. Zombies that step on it take damage.');
@@ -1006,7 +1029,7 @@ function update(dt) {
   const cap = night ? Math.min(60, 10 + day * 4 + (blood ? 12 : 0)) : 3;
   spawnT -= dt;
   if (spawnT <= 0) {
-    spawnT = (night ? (blood ? 0.9 : 1.8) : 14) * (0.6 + Math.random() * 0.8);
+    spawnT = (night ? (blood ? 0.9 : 1.8) : 14) * DIFF[settings.difficulty].spawn * (0.6 + Math.random() * 0.8);
     if (zombies.length < cap) {
       spawnZombie();
       if (blood && Math.random() < 0.5) spawnZombie();
@@ -1086,7 +1109,7 @@ function update(dt) {
 
 /* ============================== RENDER ============================== */
 function renderWorld() {
-  const shx = (Math.random() - 0.5) * shake, shy = (Math.random() - 0.5) * shake;
+  const shx = settings.shake ? (Math.random() - 0.5) * shake : 0, shy = settings.shake ? (Math.random() - 0.5) * shake : 0;
   ctx.setTransform(dpr * Z, 0, 0, dpr * Z, 0, 0);
   ctx.translate(viewW / 2 - cam.x + shx, viewH / 2 - cam.y + shy);
 
@@ -1231,6 +1254,10 @@ function drawObstacle(tx, ty, o) {
     }
     case O.SPIKES: {
       blit(SPR.spikes, x, y);
+      break;
+    }
+    case O.LANTERN: {
+      blit(SPR.lantern, x, y);
       break;
     }
     case O.FIRE: {
@@ -1432,6 +1459,19 @@ function renderLight() {
     g2.addColorStop(0, `rgba(0,0,0,${0.6 * na})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
     lctx.fillStyle = g2; lctx.beginPath(); lctx.arc(px, py, r2, 0, Math.PI * 2); lctx.fill();
   }
+  // Lantern posts light the dark at night (no fuel)
+  if (na > 0.01) for (let li = 0; li < world.obs.length; li++) {
+    if (world.obs[li] !== O.LANTERN) continue;
+    const lx = ((li % WW) * T + T / 2 - cam.x + viewW / 2) * Z * dpr;
+    const ly = (Math.floor(li / WW) * T + T / 2 - cam.y + viewH / 2) * Z * dpr;
+    if (lx < -300 || ly < -300 || lx > canvas.width + 300 || ly > canvas.height + 300) continue;
+    const R = 150 * Z * dpr;
+    lctx.globalCompositeOperation = 'destination-out';
+    const lg = lctx.createRadialGradient(lx, ly, 0, lx, ly, R);
+    lg.addColorStop(0, `rgba(0,0,0,${0.9 * na})`); lg.addColorStop(1, 'rgba(0,0,0,0)');
+    lctx.fillStyle = lg; lctx.beginPath(); lctx.arc(lx, ly, R, 0, Math.PI * 2); lctx.fill();
+  }
+  lctx.globalCompositeOperation = 'source-over';
   // Campfires cut a warm hole in the dark and glow
   for (const fi of world.fires.keys()) {
     const fx = ((fi % WW) * T + T / 2 - cam.x + viewW / 2) * Z * dpr;
@@ -1631,7 +1671,7 @@ mmCanvas.width = WW; mmCanvas.height = WH;
 const mmCtx = mmCanvas.getContext('2d');
 let mmLast = -99;
 const MM_COL = { grass: [77, 125, 57], dirt: [123, 91, 59], sand: [205, 182, 126], water: [36, 96, 140] };
-const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74], 9: [255, 130, 50], 10: [150, 150, 158], 11: [120, 84, 44] };
+const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74], 9: [255, 130, 50], 10: [150, 150, 158], 11: [120, 84, 44], 12: [200, 170, 90] };
 
 function buildMinimap() {
   const img = mmCtx.createImageData(WW, WH);
@@ -1652,7 +1692,7 @@ function buildMinimap() {
 function renderMinimap() {
   if (time - mmLast > 0.5) { buildMinimap(); mmLast = time; }
   const size = 170, W = cssW, H = cssH;
-  if (W < 1200) return; // too narrow: would overlap the hotbar
+  if (W < 1200 || !settings.minimap) return; // too narrow: would overlap the hotbar
   const x0 = W - size - 20, y0 = H - size - 20;
   ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(ctx, x0 - 6, y0 - 6, size + 12, size + 12, 10); ctx.fill();
   ctx.imageSmoothingEnabled = false;
@@ -1727,6 +1767,24 @@ function updateMuteLabel() {
 document.getElementById('btn-mute').addEventListener('click', () => {
   muted = !muted; updateMuteLabel(); toast(muted ? 'Sound muted' : 'Sound on');
 });
+function updateOptionLabels() {
+  document.getElementById('btn-diff').textContent = `Difficulty: ${DIFF[settings.difficulty].label}`;
+  document.getElementById('btn-shake').textContent = `Screen shake: ${settings.shake ? 'On' : 'Off'}`;
+  document.getElementById('btn-map').textContent = `Minimap: ${settings.minimap ? 'On' : 'Off'}`;
+}
+document.getElementById('btn-diff').addEventListener('click', () => {
+  const i = DIFF_ORDER.indexOf(settings.difficulty);
+  settings.difficulty = DIFF_ORDER[(i + 1) % DIFF_ORDER.length];
+  saveSettings(); updateOptionLabels();
+  toast(`Difficulty set to ${DIFF[settings.difficulty].label}. Applies to new zombies.`);
+});
+document.getElementById('btn-shake').addEventListener('click', () => {
+  settings.shake = !settings.shake; saveSettings(); updateOptionLabels();
+});
+document.getElementById('btn-map').addEventListener('click', () => {
+  settings.minimap = !settings.minimap; saveSettings(); updateOptionLabels();
+});
+updateOptionLabels();
 function continueRun() {
   ac();
   if (loadGame()) startPlay(); else startNewRun();
