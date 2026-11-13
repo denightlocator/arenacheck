@@ -11,13 +11,14 @@ const DAY_SEC = 240;          // real seconds per in-game day
 const SS = 2;                 // sprite supersampling
 
 const G = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3 };
-const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8 };
-const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1];
+const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9 };
+const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1];
 
 const WEAPONS = [
   { id: 'knife', name: 'Hunting Knife', melee: true, cd: 0.42, range: 44, arc: 1.25, dmg: 34 },
   { id: 'pistol', name: '9mm Pistol', mag: 12, ammo: 'ammo', cd: 0.24, reload: 1.1, speed: 900, life: 0.55, pellets: 1, spread: 0.025, dmg: 15, loud: 0.5 },
   { id: 'shotgun', name: 'Pump Shotgun', mag: 6, ammo: 'shells', cd: 0.85, reload: 1.7, speed: 720, life: 0.36, pellets: 7, spread: 0.22, dmg: 9, loud: 1 },
+  { id: 'axe', name: 'Fire Axe', melee: true, chop: true, item: 'axe', cd: 0.7, range: 50, arc: 1.0, dmg: 55 },
 ];
 
 const ZTYPES = {
@@ -30,15 +31,17 @@ const RECIPES = [
   { name: 'Medkit', need: { cloth: 3, scrap: 1 }, give: { medkit: 1 }, desc: 'Heals 45 HP when used (J)' },
   { name: '9mm Rounds x12', need: { scrap: 2, stone: 1 }, give: { ammo: 12 }, desc: 'Pistol ammunition' },
   { name: 'Shotgun Shells x6', need: { scrap: 2, wood: 1 }, give: { shells: 6 }, desc: 'Shotgun ammunition' },
+  { name: 'Fire Axe', need: { wood: 3, scrap: 2 }, give: { axe: 1 }, desc: 'Heavy melee weapon that chops trees (slot 4)', once: true },
+  { name: 'Bandage x2', need: { cloth: 2 }, give: { bandage: 2 }, desc: 'Heals 20 HP (press K)' },
 ];
 
 const ITEM_COL = {
   ammo: '#f2c14e', shells: '#e4572e', food: '#8fd16b', water: '#4fa3e0', medkit: '#ff5c7a',
-  scrap: '#b8bec6', cloth: '#f4f1e8', wood: '#b07a3f', stone: '#8d949e',
+  scrap: '#b8bec6', cloth: '#f4f1e8', wood: '#b07a3f', stone: '#8d949e', bandage: '#f7f2e4', axe: '#c0c8d0',
 };
 const ITEM_NAME = {
   ammo: '9mm', shells: 'Shells', food: 'Food', water: 'Water', medkit: 'Medkit',
-  scrap: 'Scrap', cloth: 'Cloth', wood: 'Wood', stone: 'Stone',
+  scrap: 'Scrap', cloth: 'Cloth', wood: 'Wood', stone: 'Stone', bandage: 'Bandage', axe: 'Axe',
 };
 
 /* ============================== DOM / CANVAS ============================== */
@@ -286,7 +289,7 @@ function makeNoise(scale) {
 }
 
 function generate() {
-  const W = { ground: new Uint8Array(WW * WH), obs: new Uint8Array(WW * WH), hp: new Map(), chests: new Map(), houses: [] };
+  const W = { ground: new Uint8Array(WW * WH), obs: new Uint8Array(WW * WH), hp: new Map(), chests: new Map(), fires: new Map(), houses: [] };
   const nF = makeNoise(9), nL = makeNoise(13), nR = makeNoise(7), nD = makeNoise(6);
   const cx = WW / 2, cy = WH / 2;
 
@@ -365,6 +368,7 @@ let world = null;
 let hours = 8, day = 1, weather = 'clear';
 let zombies = [], bullets = [], parts = [], decals = [], drops = [], toasts = [];
 let spawnT = 0, kills = 0, shake = 0, groanT = 0, time = 0, building = false, gatherCD = 0;
+let buildKind = 'wall';   // 'wall' | 'fire'
 const cam = { x: 0, y: 0 };
 const mouse = { x: 0, y: 0, pressed: false };
 const keys = {};
@@ -374,7 +378,7 @@ const player = {
   iframe: 0, flash: 0, lastHurt: 99, weapon: 1, cool: 0, reload: 0, reloadW: 1,
   swing: 0, muzzle: 0, aim: 0, moving: false, bob: 0,
   mags: { pistol: 12, shotgun: 6 },
-  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 6 },
+  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, ammo: 24, shells: 6 },
 };
 
 function isNight() { return hours < 6 || hours >= 19.5; }
@@ -401,7 +405,7 @@ function newGame() {
     x: WW * T / 2, y: WH * T / 2, hp: 100, hunger: 100, thirst: 100, stamina: 100,
     iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0, weapon: 1,
     mags: { pistol: 12, shotgun: 6 },
-    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 6 },
+    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, ammo: 24, shells: 6 },
   });
   zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   hours = 8; day = 1; kills = 0; spawnT = 4; building = false; gatherCD = 0;
@@ -491,6 +495,17 @@ function moveZombie(z, mx, my, ux, uy, dt) {
   }
 }
 
+// True when nothing solid sits between two points (used so zombies can't hit through walls).
+function lineClear(x0, y0, x1, y1) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
+  for (let s = 1; s < steps; s++) {
+    const t = s / steps;
+    const tx = Math.floor((x0 + (x1 - x0) * t) / T), ty = Math.floor((y0 + (y1 - y0) * t) / T);
+    if (inb(tx, ty) && SOLIDOBS[world.obs[idx(tx, ty)]] === 1) return false;
+  }
+  return true;
+}
+
 function updateZombies(dt) {
   for (const z of zombies) {
     z.attackCD -= dt; z.flash -= dt;
@@ -515,7 +530,7 @@ function updateZombies(dt) {
 
     if (d > z.r + player.r + 4) moveZombie(z, vx * z.sp * dt, vy * z.sp * dt, ux, uy, dt);
 
-    if (d < z.r + player.r + 6 && z.attackCD <= 0) {
+    if (d < z.r + player.r + 6 && z.attackCD <= 0 && lineClear(z.x, z.y, player.x, player.y)) {
       z.attackCD = z.cd; z.lunge = 1;
       hurt(z.dmg);
     }
@@ -591,6 +606,18 @@ function fire() {
 function meleeSwing(w) {
   player.cool = w.cd; player.swing = 0.2;
   sfx.swing();
+  if (w.chop) {
+    // the axe bites into a tree in front of you
+    const [tx, ty] = tileInFront(1.0);
+    const i = inb(tx, ty) ? idx(tx, ty) : -1;
+    if (i >= 0 && world.obs[i] === O.TREE) {
+      const hp = (world.hp.get(i) ?? 4) - 2;
+      player.inv.wood += 2;
+      burst(tx * T + T / 2, ty * T + T / 2, '#c8a070', 8, 110);
+      if (hp <= 0) { world.obs[i] = O.NONE; world.hp.delete(i); player.inv.wood += 3; toast('Timber! +5 wood'); }
+      else world.hp.set(i, hp);
+    }
+  }
   const a0 = player.aim;
   for (const z of [...zombies]) {
     const dx = z.x - player.x, dy = z.y - player.y;
@@ -669,6 +696,17 @@ function interact() {
       else world.hp.set(i, hp);
       return;
     }
+    if (o === O.FIRE) {
+      const f = world.fires.get(i);
+      if (!f) continue;
+      if (player.inv.wood < 1) { toast('The fire needs wood (1 wood = 60 s).'); return; }
+      player.inv.wood--;
+      f.fuel = Math.min(180, f.fuel + 60);
+      burst(tx * T + T / 2, ty * T + T / 2, '#ffb347', 8, 80);
+      toast('Fed the fire (+60 s).');
+      gatherCD = 0.3;
+      return;
+    }
     if (o === O.CHEST) {
       const c = world.chests.get(i);
       if (!c || c.looted) { toast('The chest is empty.'); return; }
@@ -691,6 +729,13 @@ function interact() {
   toast('Nothing to interact with here.');
 }
 
+// Weapons with an `item` field must be crafted first (inventory count > 0).
+const owned = (w) => !w.item || player.inv[w.item] > 0;
+const canAfford = (cost) => Object.keys(cost).every((k) => player.inv[k] >= cost[k]);
+const costText = (cost) => Object.keys(cost).map((k) => `${cost[k]} ${ITEM_NAME[k]}`).join(', ');
+const buildCost = () => (buildKind === 'fire' ? { wood: 3, stone: 1 } : { wood: 4 });
+function pay(cost) { for (const k in cost) player.inv[k] -= cost[k]; }
+
 function tryBuild() {
   const [tx, ty] = tileInFront(1.0);
   if (!inb(tx, ty)) return;
@@ -699,13 +744,20 @@ function tryBuild() {
   if (world.obs[i] !== O.NONE || world.ground[i] === G.WATER) { toast('Can\'t build there.'); sfx.click(); return; }
   if (Math.hypot(cx - player.x, cy - player.y) < T * 0.9) { toast('Too close to build here.'); return; }
   for (const z of zombies) if (Math.hypot(z.x - cx, z.y - cy) < z.r + T / 2) { toast('Zombie in the way!'); return; }
-  if (player.inv.wood < 4) { toast('A wall costs 4 wood.'); sfx.click(); return; }
-  player.inv.wood -= 4;
-  world.obs[i] = O.PWALL;
-  world.hp.set(i, 100);
-  burst(cx, cy, '#c9a66b', 10, 100);
+  const cost = buildCost();
+  if (!canAfford(cost)) { toast(`Costs ${costText(cost)}.`); sfx.click(); return; }
+  pay(cost);
+  if (buildKind === 'fire') {
+    world.obs[i] = O.FIRE;
+    world.fires.set(i, { fuel: 60 });
+    toast('Campfire lit. Feed it wood with E to keep it going.');
+  } else {
+    world.obs[i] = O.PWALL;
+    world.hp.set(i, 100);
+    toast('Barricade placed.');
+  }
+  burst(cx, cy, buildKind === 'fire' ? '#ffb347' : '#c9a66b', 10, 100);
   sfx.build();
-  toast('Barricade placed.');
 }
 
 function consume(kind) {
@@ -715,6 +767,9 @@ function consume(kind) {
   } else if (kind === 'water') {
     if (player.inv.water <= 0) return toast('No water bottles.');
     player.inv.water--; player.thirst = Math.min(100, player.thirst + 40); toast('Drank a water bottle. (+thirst)');
+  } else if (kind === 'bandage') {
+    if (player.inv.bandage <= 0) return toast('No bandages.');
+    player.inv.bandage--; player.hp = Math.min(100, player.hp + 20); toast('Bandaged up. (+20 HP)');
   } else if (kind === 'medkit') {
     if (player.inv.medkit <= 0) return toast('No medkits.');
     player.inv.medkit--; player.hp = Math.min(100, player.hp + 45); toast('Used a medkit. (+45 HP)');
@@ -724,6 +779,7 @@ function consume(kind) {
 
 function craft(index) {
   const r = RECIPES[index];
+  if (r.once && player.inv[Object.keys(r.give)[0]] > 0) { toast('You already have that.'); return; }
   for (const k in r.need) if ((player.inv[k] || 0) < r.need[k]) { toast('Missing materials.'); return; }
   for (const k in r.need) player.inv[k] -= r.need[k];
   for (const k in r.give) player.inv[k] += r.give[k];
@@ -785,6 +841,21 @@ function update(dt) {
     player.hp = Math.min(100, player.hp + dt * 1.5);
   }
   player.lastHurt += dt;
+
+  // Campfires burn down; nearby survivors are warmed (slow healing)
+  let warm = false;
+  for (const [fi, f] of world.fires) {
+    f.fuel -= dt;
+    const fx = (fi % WW) * T + T / 2, fy = Math.floor(fi / WW) * T + T / 2;
+    if (f.fuel <= 0) {
+      world.fires.delete(fi); world.obs[fi] = O.NONE;
+      burst(fx, fy, '#7a7a7a', 10, 50);
+      toast('A campfire burned out.');
+      continue;
+    }
+    if (Math.hypot(fx - player.x, fy - player.y) < 130) warm = true;
+  }
+  if (warm && player.hp < 100) player.hp = Math.min(100, player.hp + dt * 2.5);
 
   // Timers
   player.iframe -= dt; player.flash -= dt; player.cool -= dt; player.swing -= dt;
@@ -967,7 +1038,7 @@ function renderWorld() {
   if (building && state === 'play') {
     const [tx, ty] = tileInFront(1.0);
     if (inb(tx, ty)) {
-      const ok = world.obs[idx(tx, ty)] === O.NONE && world.ground[idx(tx, ty)] !== G.WATER && player.inv.wood >= 4;
+      const ok = world.obs[idx(tx, ty)] === O.NONE && world.ground[idx(tx, ty)] !== G.WATER && canAfford(buildCost());
       ctx.fillStyle = ok ? 'rgba(120,255,140,.28)' : 'rgba(255,80,80,.28)';
       ctx.strokeStyle = ok ? 'rgba(160,255,170,.9)' : 'rgba(255,110,110,.9)';
       ctx.lineWidth = 2;
@@ -1003,6 +1074,29 @@ function drawObstacle(tx, ty, o) {
       if (hp < 100) {
         ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x + 6, y - 6, T - 12, 4);
         ctx.fillStyle = '#e8b14a'; ctx.fillRect(x + 6, y - 6, (T - 12) * (hp / 100), 4);
+      }
+      break;
+    }
+    case O.FIRE: {
+      const cx = x + T / 2, cy = y + T / 2 + 8;
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.beginPath(); ctx.ellipse(cx, cy + 2, 17, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4a2c14'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx - 13, cy + 3); ctx.lineTo(cx + 13, cy - 3);
+      ctx.moveTo(cx - 13, cy - 3); ctx.lineTo(cx + 13, cy + 3);
+      ctx.stroke();
+      // flickering flames
+      for (let k = 0; k < 3; k++) {
+        const ph = time * (7 + k * 2) + k * 2.1 + tx;
+        const fh = 16 - k * 3 + Math.sin(ph) * 3;
+        const fw = 7 - k;
+        const g = ctx.createLinearGradient(0, cy, 0, cy - fh);
+        g.addColorStop(0, 'rgba(255,110,30,.95)');
+        g.addColorStop(0.6, 'rgba(255,190,70,.85)');
+        g.addColorStop(1, 'rgba(255,240,160,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(cx + (k - 1) * 4 + Math.sin(ph) * 1.5, cy - fh / 2, fw, fh / 2, 0, 0, Math.PI * 2); ctx.fill();
       }
       break;
     }
@@ -1083,8 +1177,14 @@ function drawPlayer() {
     const sw = player.swing > 0 ? Math.sin((player.swing / 0.2) * Math.PI) : 0;
     ctx.save();
     ctx.rotate(-0.8 + sw * 1.6);
-    ctx.fillStyle = '#5a3d25'; ctx.fillRect(8, -2, 6, 4);
-    ctx.fillStyle = '#c8ced6'; ctx.beginPath(); ctx.moveTo(14, -2); ctx.lineTo(28, -1); ctx.lineTo(14, 2); ctx.fill();
+    if (w.id === 'axe') {
+      ctx.fillStyle = '#5a3d25'; ctx.fillRect(8, -2, 22, 4);
+      ctx.fillStyle = '#b8c0c8'; ctx.beginPath(); ctx.moveTo(24, -9); ctx.lineTo(34, -6); ctx.lineTo(34, 6); ctx.lineTo(24, 9); ctx.fill();
+      ctx.fillStyle = '#d0242a'; ctx.fillRect(28, -2, 3, 4);
+    } else {
+      ctx.fillStyle = '#5a3d25'; ctx.fillRect(8, -2, 6, 4);
+      ctx.fillStyle = '#c8ced6'; ctx.beginPath(); ctx.moveTo(14, -2); ctx.lineTo(28, -1); ctx.lineTo(14, 2); ctx.fill();
+    }
     ctx.restore();
     if (player.swing > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 6;
@@ -1151,6 +1251,23 @@ function renderLight() {
     const g2 = lctx.createRadialGradient(px, py, 0, px, py, r2);
     g2.addColorStop(0, `rgba(0,0,0,${0.6 * na})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
     lctx.fillStyle = g2; lctx.beginPath(); lctx.arc(px, py, r2, 0, Math.PI * 2); lctx.fill();
+  }
+  // Campfires cut a warm hole in the dark and glow
+  for (const fi of world.fires.keys()) {
+    const fx = ((fi % WW) * T + T / 2 - cam.x + viewW / 2) * Z * dpr;
+    const fy = (Math.floor(fi / WW) * T + T / 2 - cam.y + viewH / 2) * Z * dpr;
+    const R = 170 * Z * dpr;
+    if (na > 0.01) {
+      lctx.globalCompositeOperation = 'destination-out';
+      const g = lctx.createRadialGradient(fx, fy, 0, fx, fy, R);
+      g.addColorStop(0, `rgba(0,0,0,${na})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+      lctx.fillStyle = g; lctx.beginPath(); lctx.arc(fx, fy, R, 0, Math.PI * 2); lctx.fill();
+    }
+    lctx.globalCompositeOperation = 'lighter';
+    const w2 = lctx.createRadialGradient(fx, fy, 0, fx, fy, R * 0.6);
+    w2.addColorStop(0, `rgba(255,140,60,${0.35 + 0.05 * Math.sin(time * 10)})`);
+    w2.addColorStop(1, 'rgba(255,140,60,0)');
+    lctx.fillStyle = w2; lctx.beginPath(); lctx.arc(fx, fy, R * 0.6, 0, Math.PI * 2); lctx.fill();
   }
   lctx.globalCompositeOperation = 'lighter';
   if (player.muzzle > 0) {
@@ -1228,11 +1345,12 @@ function renderHUD() {
 
   // Hotbar
   const slots = WEAPONS.map((w, i) => {
+    if (!owned(w)) return { ok: false };
     let sub;
     if (w.melee) sub = 'Melee';
     else sub = `${player.mags[w.id]} / ${player.inv[w.ammo]}`;
-    return { name: w.name, sub, sel: i === player.weapon, key: i + 1 };
-  });
+    return { ok: true, name: w.name, sub, sel: i === player.weapon, key: i + 1 };
+  }).filter((s) => s.ok);
   const sw = 150, sh = 52, gap = 10;
   const total = slots.length * sw + (slots.length - 1) * gap;
   let sx = W / 2 - total / 2;
@@ -1255,7 +1373,7 @@ function renderHUD() {
   }
 
   // Items row
-  const items = ['wood', 'stone', 'cloth', 'scrap', 'food', 'water', 'medkit'];
+  const items = ['wood', 'stone', 'cloth', 'scrap', 'food', 'water', 'bandage', 'medkit'];
   ctx.font = '600 13px system-ui, sans-serif';
   const parts2 = items.map((k) => `${ITEM_NAME[k]} ${player.inv[k]}`);
   const rowText = parts2.join('   ·   ');
@@ -1306,7 +1424,7 @@ function renderHUD() {
   }
 
   // Hints
-  const hint = building ? 'BUILD MODE — click to place a barricade (4 wood) · B to exit'
+  const hint = building ? `BUILD MODE (${buildKind === 'fire' ? 'campfire' : 'barricade'}) — click to place · X switch · B exit`
     : (isNight() ? 'Night. Get inside and barricade. The dead are hungry.' : 'E interact · C craft · B build · G/H/J use items');
   ctx.font = '500 13px system-ui, sans-serif';
   ctx.textAlign = 'center';
@@ -1333,7 +1451,7 @@ mmCanvas.width = WW; mmCanvas.height = WH;
 const mmCtx = mmCanvas.getContext('2d');
 let mmLast = -99;
 const MM_COL = { grass: [77, 125, 57], dirt: [123, 91, 59], sand: [205, 182, 126], water: [36, 96, 140] };
-const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74] };
+const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74], 9: [255, 130, 50] };
 
 function buildMinimap() {
   const img = mmCtx.createImageData(WW, WH);
@@ -1393,7 +1511,7 @@ function renderRecipes() {
   const box = document.getElementById('recipes');
   box.innerHTML = '';
   RECIPES.forEach((r, i) => {
-    const can = Object.keys(r.need).every((k) => player.inv[k] >= r.need[k]);
+    const can = canAfford(r.need) && !(r.once && player.inv[Object.keys(r.give)[0]] > 0);
     const cost = Object.keys(r.need).map((k) => `${r.need[k]} ${ITEM_NAME[k]}`).join(', ') || 'free';
     const row = document.createElement('div');
     row.className = 'recipe';
@@ -1440,10 +1558,12 @@ window.addEventListener('keydown', (e) => {
     switch (k) {
       case 'escape': state = 'pause'; showPanel('pause'); return;
       case 'c': openCraft(); return;
-      case 'b': building = !building; toast(building ? 'Build mode: click to place barricades.' : 'Build mode off.'); return;
+      case 'b': building = !building; toast(building ? 'Build mode: click to place. X switches barricade/campfire.' : 'Build mode off.'); return;
       case 'e': interact(); return;
       case 'r': reload(); return;
-      case '1': case '2': case '3': selectWeapon(parseInt(k, 10) - 1); return;
+      case '1': case '2': case '3': case '4': selectWeapon(parseInt(k, 10) - 1); return;
+      case 'x': if (building) { buildKind = buildKind === 'wall' ? 'fire' : 'wall'; toast(buildKind === 'fire' ? 'Build: campfire (3 wood, 1 stone).' : 'Build: barricade (4 wood).'); } return;
+      case 'k': consume('bandage'); return;
       case 'g': consume('food'); return;
       case 'h': consume('water'); return;
       case 'j': consume('medkit'); return;
@@ -1463,6 +1583,8 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 
 function selectWeapon(i) {
   if (i === player.weapon) return;
+  if (!WEAPONS[i]) return;
+  if (!owned(WEAPONS[i])) { toast('You haven\'t crafted that yet.'); return; }
   player.weapon = i; player.reload = 0; player.cool = 0.15;
   sfx.click();
 }
@@ -1477,7 +1599,12 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
   if (state !== 'play') return;
   const n = WEAPONS.length;
-  selectWeapon((player.weapon + (e.deltaY > 0 ? 1 : n - 1)) % n);
+  let j = player.weapon;
+  for (let k = 0; k < n; k++) {
+    j = (j + (e.deltaY > 0 ? 1 : n - 1)) % n;
+    if (owned(WEAPONS[j])) break;
+  }
+  selectWeapon(j);
 }, { passive: true });
 
 /* ============================== LOOP ============================== */
