@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dead Hollow — Zombie Survival</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="ui">
+    <div id="menu" class="panel show">
+      <h1>DEAD HOLLOW</h1>
+      <p class="sub">Scavenge the woods. Barricade your shelter. Survive the nights.</p>
+      <button id="btn-start">Start Survival</button>
+      <div class="controls">
+        <div><kbd>W A S D</kbd> move &middot; <kbd>Shift</kbd> sprint</div>
+        <div><kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> attack / shoot / place wall</div>
+        <div><kbd>1 2 3</kbd> or wheel: weapon &middot; <kbd>R</kbd> reload</div>
+        <div><kbd>E</kbd> chop, mine, loot, drink &middot; <kbd>C</kbd> craft &middot; <kbd>B</kbd> build mode</div>
+        <div><kbd>G</kbd> eat &middot; <kbd>H</kbd> drink &middot; <kbd>J</kbd> medkit &middot; <kbd>M</kbd> mute &middot; <kbd>Esc</kbd> pause</div>
+      </div>
+    </div>
+
+    <div id="pause" class="panel">
+      <h2>Paused</h2>
+      <button id="btn-resume">Resume</button>
+      <button id="btn-restart2" class="ghost">New Game</button>
+      <div class="controls"><div>Scavenge houses for chests. Zombies grow stronger every day, and every 5th day brings a Blood Moon.</div></div>
+    </div>
+
+    <div id="craft" class="panel">
+      <h2>Crafting</h2>
+      <div id="recipes"></div>
+      <button id="btn-craftclose" class="ghost">Close (C)</button>
+    </div>
+
+    <div id="over" class="panel">
+      <h2>You Died</h2>
+      <div id="over-stats"></div>
+      <button id="btn-restart">Try Again</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
