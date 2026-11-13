@@ -19,6 +19,7 @@ const WEAPONS = [
   { id: 'pistol', name: '9mm Pistol', mag: 12, ammo: 'ammo', cd: 0.24, reload: 1.1, speed: 900, life: 0.55, pellets: 1, spread: 0.025, dmg: 15, loud: 0.5 },
   { id: 'shotgun', name: 'Pump Shotgun', mag: 6, ammo: 'shells', cd: 0.85, reload: 1.7, speed: 720, life: 0.36, pellets: 7, spread: 0.22, dmg: 9, loud: 1 },
   { id: 'axe', name: 'Fire Axe', melee: true, chop: true, item: 'axe', cd: 0.7, range: 50, arc: 1.0, dmg: 55 },
+  { id: 'rifle', name: 'Assault Rifle', mag: 30, ammo: 'ammo', cd: 0.11, reload: 1.8, speed: 1000, life: 0.5, pellets: 1, spread: 0.07, dmg: 13, loud: 0.7, auto: true, item: 'rifle' },
 ];
 
 const ZTYPES = {
@@ -34,6 +35,7 @@ const RECIPES = [
   { name: 'Shotgun Shells x6', need: { scrap: 2, wood: 1 }, give: { shells: 6 }, desc: 'Shotgun ammunition' },
   { name: 'Fire Axe', need: { wood: 3, scrap: 2 }, give: { axe: 1 }, desc: 'Heavy melee weapon that chops trees (slot 4)', once: true },
   { name: 'Bandage x2', need: { cloth: 2 }, give: { bandage: 2 }, desc: 'Heals 20 HP (press K)' },
+  { name: 'Assault Rifle', need: { scrap: 6, stone: 3, wood: 2 }, give: { rifle: 1 }, desc: 'Fully automatic: hold the mouse button (slot 5)', once: true },
 ];
 
 const ITEM_COL = {
@@ -374,7 +376,7 @@ let buildKind = 'wall';   // 'wall' | 'fire'
 const SAVE_KEY = 'deadhollow_save';
 let saveT = 15;
 const cam = { x: 0, y: 0 };
-const mouse = { x: 0, y: 0, pressed: false };
+const mouse = { x: 0, y: 0, pressed: false, held: false };
 const keys = {};
 
 const player = {
@@ -382,7 +384,7 @@ const player = {
   iframe: 0, flash: 0, lastHurt: 99, weapon: 1, cool: 0, reload: 0, reloadW: 1,
   swing: 0, muzzle: 0, aim: 0, moving: false, bob: 0,
   mags: { pistol: 12, shotgun: 6 },
-  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, ammo: 24, shells: 6 },
+  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, rifle: 0, ammo: 24, shells: 6 },
 };
 
 function isNight() { return hours < 6 || hours >= 19.5; }
@@ -409,7 +411,7 @@ function newGame() {
     x: WW * T / 2, y: WH * T / 2, hp: 100, hunger: 100, thirst: 100, stamina: 100,
     iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0, weapon: 1,
     mags: { pistol: 12, shotgun: 6 },
-    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, ammo: 24, shells: 6 },
+    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, rifle: 0, ammo: 24, shells: 6 },
   });
   zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   hours = 8; day = 1; kills = 0; killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 }; spawnT = 4; building = false; gatherCD = 0;
@@ -798,7 +800,7 @@ function craft(index) {
   if (r.once && player.inv[Object.keys(r.give)[0]] > 0) { toast('You already have that.'); return; }
   for (const k in r.need) if ((player.inv[k] || 0) < r.need[k]) { toast('Missing materials.'); return; }
   for (const k in r.need) player.inv[k] -= r.need[k];
-  for (const k in r.give) player.inv[k] += r.give[k];
+  for (const k in r.give) player.inv[k] = (player.inv[k] || 0) + r.give[k];
   sfx.pick();
   toast(`Crafted ${r.name}.`);
   renderRecipes();
@@ -806,7 +808,7 @@ function craft(index) {
 
 // ---------- Save / continue ----------
 function saveGame() {
-  if (!world || state === 'menu' || state === 'over') return;
+  if (!world || state === 'menu' || state === 'over' || state === 'won') return;
   const data = {
     v: 1, hours, day, weather, kills, buildKind, killStats,
     player: { x: player.x, y: player.y, hp: player.hp, hunger: player.hunger, thirst: player.thirst,
@@ -838,6 +840,17 @@ function loadGame() {
   return true;
 }
 
+function victory() {
+  localStorage.removeItem(SAVE_KEY);
+  state = 'won';
+  document.querySelector('#over h2').textContent = 'You Escaped!';
+  document.getElementById('over-stats').innerHTML =
+    `You survived <b>${day - 1}</b> nights and killed <b>${kills}</b> zombies.<br>` +
+    `Walkers <b>${killStats.walker}</b> · Runners <b>${killStats.runner}</b> · Brutes <b>${killStats.brute}</b> · Spitters <b>${killStats.spitter}</b>`;
+  tone(440, 0.6, 0.15, 'triangle', 660);
+  showPanel('over');
+}
+
 function gameOver() {
   if (state !== 'play') return;
   localStorage.removeItem(SAVE_KEY);
@@ -848,6 +861,7 @@ function gameOver() {
     `You survived <b>${day}</b> day${day === 1 ? '' : 's'} and killed <b>${kills}</b> zombies.<br>` +
     `Best run: <b>${best}</b> day${best === 1 ? '' : 's'}.<br>` +
     `Walkers <b>${killStats.walker}</b> · Runners <b>${killStats.runner}</b> · Brutes <b>${killStats.brute}</b> · Spitters <b>${killStats.spitter}</b>`;
+  document.querySelector('#over h2').textContent = 'You Died';
   showPanel('over');
 }
 
@@ -855,11 +869,14 @@ function gameOver() {
 function update(dt) {
   if (state !== 'play') return;
   time += dt;
+  // Make sure every magazine-fed weapon has a loaded magazine (covers newly crafted guns)
+  for (const w of WEAPONS) if (w.mag && player.mags[w.id] === undefined) player.mags[w.id] = w.mag;
 
   // Clock & days
   hours += dt * 24 / DAY_SEC;
   if (hours >= 24) {
     hours -= 24; day++;
+    if (day === 10) { victory(); return; }
     weather = Math.random() < 0.3 ? 'rain' : 'clear';
     toast(`Day ${day}.${isBlood() ? ' BLOOD MOON tonight!' : ''}`);
   }
@@ -918,7 +935,7 @@ function update(dt) {
   }
 
   // Input-driven actions
-  if (mouse.pressed) {
+  if (mouse.pressed || (mouse.held && WEAPONS[player.weapon].auto && !building)) {
     mouse.pressed = false;
     if (building) tryBuild(); else fire();
   }
@@ -1423,7 +1440,7 @@ function renderHUD() {
     else sub = `${player.mags[w.id]} / ${player.inv[w.ammo]}`;
     return { ok: true, name: w.name, sub, sel: i === player.weapon, key: i + 1 };
   }).filter((s) => s.ok);
-  const sw = 150, sh = 52, gap = 10;
+  const sw = 140, sh = 52, gap = 10;
   const total = slots.length * sw + (slots.length - 1) * gap;
   let sx = W / 2 - total / 2;
   const sy = H - sh - 22;
@@ -1466,7 +1483,7 @@ function renderHUD() {
   // Top-right status
   const hh = Math.floor(hours), mm = Math.floor((hours - hh) * 60);
   const lines = [
-    `DAY ${day}`,
+    `DAY ${day} / 10`,
     `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}  ${isNight() ? 'NIGHT' : 'DAYLIGHT'}`,
     `${weather === 'rain' ? 'Rain' : 'Clear'}${isBlood() && isNight() ? ' · BLOOD MOON' : ''}`,
     `Kills ${kills}   Zombies ${zombies.length}`,
@@ -1544,7 +1561,7 @@ function buildMinimap() {
 function renderMinimap() {
   if (time - mmLast > 0.5) { buildMinimap(); mmLast = time; }
   const size = 170, W = cssW, H = cssH;
-  if (W < 980) return; // too narrow: would overlap the hotbar
+  if (W < 1200) return; // too narrow: would overlap the hotbar
   const x0 = W - size - 20, y0 = H - size - 20;
   ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(ctx, x0 - 6, y0 - 6, size + 12, size + 12, 10); ctx.fill();
   ctx.imageSmoothingEnabled = false;
@@ -1642,7 +1659,7 @@ window.addEventListener('keydown', (e) => {
     if (localStorage.getItem(SAVE_KEY)) continueRun(); else startNewRun();
     return;
   }
-  if (state === 'over' && (k === 'enter' || k === 'r')) { restart(); return; }
+  if ((state === 'over' || state === 'won') && (k === 'enter' || k === 'r')) { restart(); return; }
   if (k === 'm') { muted = !muted; toast(muted ? 'Sound muted' : 'Sound on'); updateMuteLabel(); return; }
 
   if (state === 'play') {
@@ -1652,7 +1669,7 @@ window.addEventListener('keydown', (e) => {
       case 'b': building = !building; toast(building ? 'Build mode: click to place. X switches barricade/campfire.' : 'Build mode off.'); return;
       case 'e': interact(); return;
       case 'r': reload(); return;
-      case '1': case '2': case '3': case '4': selectWeapon(parseInt(k, 10) - 1); return;
+      case '1': case '2': case '3': case '4': case '5': selectWeapon(parseInt(k, 10) - 1); return;
       case 'x': if (building) { buildKind = buildKind === 'wall' ? 'fire' : 'wall'; toast(buildKind === 'fire' ? 'Build: campfire (3 wood, 1 stone).' : 'Build: barricade (4 wood).'); } return;
       case 'k': consume('bandage'); return;
       case 'g': consume('food'); return;
@@ -1684,9 +1701,10 @@ canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.c
 canvas.addEventListener('mousedown', (e) => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   ac();
-  if (e.button === 0 && state === 'play') mouse.pressed = true;
+  if (e.button === 0 && state === 'play') { mouse.pressed = true; mouse.held = true; }
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('mouseup', (e) => { if (e.button === 0) mouse.held = false; });
 canvas.addEventListener('wheel', (e) => {
   if (state !== 'play') return;
   const n = WEAPONS.length;
