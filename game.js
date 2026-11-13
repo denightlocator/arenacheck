@@ -11,8 +11,16 @@ const DAY_SEC = 240;          // real seconds per in-game day
 const SS = 2;                 // sprite supersampling
 
 const G = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3 };
-const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9 };
-const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1];
+const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9, SWALL: 10, SPIKES: 11 };
+const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0];
+// Everything the player can build: name, cost, and what it becomes in the world.
+const BUILD = {
+  wall: { name: 'Barricade', cost: { wood: 4 }, hp: 100, desc: 'Cheap wooden barricade' },
+  fire: { name: 'Campfire', cost: { wood: 3, stone: 1 }, desc: 'Warmth and light, needs wood' },
+  swall: { name: 'Stone Wall', cost: { stone: 5, wood: 1 }, hp: 250, desc: 'Tough: 250 HP' },
+  spikes: { name: 'Spike Trap', cost: { wood: 3, scrap: 1 }, desc: 'Hurts zombies that step on it' },
+};
+const BUILD_ORDER = ['wall', 'fire', 'swall', 'spikes'];
 
 const WEAPONS = [
   { id: 'knife', name: 'Hunting Knife', melee: true, cd: 0.42, range: 44, arc: 1.25, dmg: 34 },
@@ -125,6 +133,38 @@ const sfx = {
 
 /* ============================== SPRITES ============================== */
 const SPR = {};
+function makeStructureSprites() {
+  SPR.swall = sprite(T, T, (g) => {
+    // cut stone blocks with mortar and a lit top edge
+    g.fillStyle = '#7d8189'; g.fillRect(0, 0, T, T);
+    for (let r = 0; r < 4; r++) {
+      const off = r % 2 ? 12 : 0;
+      for (let c = -1; c <= 2; c++) {
+        const bx = off + c * 24, by = r * 12;
+        const shade = 120 + ((r * 7 + c * 13) % 22);
+        g.fillStyle = `rgb(${shade},${shade + 2},${shade + 8})`;
+        g.fillRect(Math.max(0, bx + 1.5), by + 1.5, 21, 9);
+      }
+    }
+    g.fillStyle = 'rgba(40,40,46,.7)';
+    for (let r = 1; r < 4; r++) g.fillRect(0, r * 12 - 1, T, 1.5);
+    g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(0, 0, T, 3);
+    g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, T - 3, T, 3);
+  });
+  SPR.spikes = sprite(T, T, (g) => {
+    // wooden base with sharpened stakes
+    g.fillStyle = '#5a3d25'; g.fillRect(4, T - 14, T - 8, 10);
+    g.fillStyle = '#3e2a18'; g.fillRect(4, T - 6, T - 8, 2);
+    for (let k = 0; k < 5; k++) {
+      const x = 8 + k * 7, h = 22 + (k % 2) * 4;
+      g.fillStyle = '#8a5f33';
+      g.beginPath(); g.moveTo(x - 3, T - 12); g.lineTo(x, T - 12 - h); g.lineTo(x + 3, T - 12); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.25)';
+      g.beginPath(); g.moveTo(x - 1, T - 14); g.lineTo(x, T - 12 - h + 2); g.lineTo(x + 0.5, T - 14); g.closePath(); g.fill();
+    }
+  });
+}
+
 function sprite(w, h, fn) {
   const c = document.createElement('canvas');
   c.width = Math.ceil(w * SS); c.height = Math.ceil(h * SS);
@@ -270,6 +310,7 @@ function makeSprites() {
     g.fillStyle = open ? '#6b5a30' : '#e0b84a';
     g.fillRect(18, open ? 14 : 16, 6, 6);
   });
+  makeStructureSprites();
   SPR.chest = chestSprite(false);
   SPR.chestOpen = chestSprite(true);
 }
@@ -496,7 +537,7 @@ function moveZombie(z, mx, my, ux, uy, dt) {
   // bang on player-built walls in the way
   if (z.attackCD <= 0) {
     const tx = Math.floor((z.x + ux * (z.r + 10)) / T), ty = Math.floor((z.y + uy * (z.r + 10)) / T);
-    if (inb(tx, ty) && world.obs[idx(tx, ty)] === O.PWALL) {
+    if (inb(tx, ty) && (world.obs[idx(tx, ty)] === O.PWALL || world.obs[idx(tx, ty)] === O.SWALL)) {
       damageWall(tx, ty, z.dmg * 1.5);
       z.attackCD = z.cd; z.lunge = 1;
     }
@@ -751,8 +792,15 @@ function interact() {
 const owned = (w) => !w.item || player.inv[w.item] > 0;
 const canAfford = (cost) => Object.keys(cost).every((k) => player.inv[k] >= cost[k]);
 const costText = (cost) => Object.keys(cost).map((k) => `${cost[k]} ${ITEM_NAME[k]}`).join(', ');
-const buildCost = () => (buildKind === 'fire' ? { wood: 3, stone: 1 } : { wood: 4 });
+const buildCost = () => BUILD[buildKind].cost;
 function pay(cost) { for (const k in cost) player.inv[k] -= cost[k]; }
+
+function cycleBuild() {
+  const next = BUILD_ORDER[(BUILD_ORDER.indexOf(buildKind) + 1) % BUILD_ORDER.length];
+  buildKind = next;
+  const b = BUILD[next];
+  toast(`Build: ${b.name} (${costText(b.cost)}). ${b.desc}.`);
+}
 
 function tryBuild() {
   const [tx, ty] = tileInFront(1.0);
@@ -769,12 +817,19 @@ function tryBuild() {
     world.obs[i] = O.FIRE;
     world.fires.set(i, { fuel: 60 });
     toast('Campfire lit. Feed it wood with E to keep it going.');
+  } else if (buildKind === 'swall') {
+    world.obs[i] = O.SWALL;
+    world.hp.set(i, 250);
+    toast('Stone wall raised.');
+  } else if (buildKind === 'spikes') {
+    world.obs[i] = O.SPIKES;
+    toast('Spike trap set. Zombies that step on it take damage.');
   } else {
     world.obs[i] = O.PWALL;
     world.hp.set(i, 100);
     toast('Barricade placed.');
   }
-  burst(cx, cy, buildKind === 'fire' ? '#ffb347' : '#c9a66b', 10, 100);
+  burst(cx, cy, buildKind === 'fire' ? '#ffb347' : buildKind === 'swall' ? '#b8bcc4' : '#c9a66b', 10, 100);
   sfx.build();
 }
 
@@ -996,6 +1051,16 @@ function update(dt) {
     if (p.life <= 0) parts.splice(i, 1);
   }
 
+  // Spike traps hurt zombies standing on them
+  for (const z of [...zombies]) {
+    z.spikeCD = (z.spikeCD || 0) - dt;
+    const tx = Math.floor(z.x / T), ty = Math.floor(z.y / T);
+    if (inb(tx, ty) && world.obs[idx(tx, ty)] === O.SPIKES && z.spikeCD <= 0) {
+      z.spikeCD = 0.8;
+      hitZombie(z, 18, 0);
+    }
+  }
+
   // Acid globs fly toward the player and splash on walls
   for (let i = acid.length - 1; i >= 0; i--) {
     const a = acid[i];
@@ -1155,6 +1220,19 @@ function drawObstacle(tx, ty, o) {
       }
       break;
     }
+    case O.SWALL: {
+      blit(SPR.swall, x, y);
+      const hp = world.hp.get(idx(tx, ty)) ?? 250;
+      if (hp < 250) {
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x + 6, y - 6, T - 12, 4);
+        ctx.fillStyle = '#c9ced6'; ctx.fillRect(x + 6, y - 6, (T - 12) * (hp / 250), 4);
+      }
+      break;
+    }
+    case O.SPIKES: {
+      blit(SPR.spikes, x, y);
+      break;
+    }
     case O.FIRE: {
       const cx = x + T / 2, cy = y + T / 2 + 8;
       ctx.fillStyle = 'rgba(0,0,0,.35)';
@@ -1220,6 +1298,30 @@ function drawZombie(z) {
   if (dark) { // eye glow
     ctx.fillStyle = 'rgba(255,60,50,.35)';
     ctx.beginPath(); ctx.arc(hx + z.r * 0.25, 0, z.r * 0.5, 0, 7); ctx.fill();
+  }
+  // type-specific details
+  if (z.type === 'spitter') {
+    // swollen acid sac on the back that pulses
+    const pulse = 1 + 0.12 * Math.sin(time * 5 + z.seed);
+    ctx.fillStyle = 'rgba(160,230,60,.85)';
+    ctx.beginPath(); ctx.arc(-z.r * 0.7, 0, z.r * 0.42 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(230,255,140,.7)';
+    ctx.beginPath(); ctx.arc(-z.r * 0.8, -z.r * 0.1, z.r * 0.15, 0, Math.PI * 2); ctx.fill();
+  } else if (z.type === 'brute') {
+    // spiked shoulder plates and a bone-crested skull
+    ctx.fillStyle = '#2f3a45';
+    for (const sy of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(-z.r * 0.1, sy * z.r * 0.8, z.r * 0.28, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c9c2a8';
+      ctx.beginPath(); ctx.moveTo(z.r * 0.1, sy * z.r * 0.9); ctx.lineTo(z.r * 0.35, sy * z.r * 1.2); ctx.lineTo(z.r * 0.05, sy * z.r * 0.7); ctx.fill();
+      ctx.fillStyle = '#2f3a45';
+    }
+    ctx.fillStyle = '#c9c2a8';
+    ctx.beginPath(); ctx.arc(hx - z.r * 0.1, 0, z.r * 0.22, 0, Math.PI * 2); ctx.fill();
+  } else if (z.type === 'runner') {
+    // lean, hunched frame: a dark spine line
+    ctx.strokeStyle = 'rgba(40,20,10,.5)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-z.r * 0.8, 0); ctx.lineTo(z.r * 0.4, 0); ctx.stroke();
   }
   if (z.flash > 0) {
     ctx.globalCompositeOperation = 'source-atop';
@@ -1502,7 +1604,7 @@ function renderHUD() {
   }
 
   // Hints
-  const hint = building ? `BUILD MODE (${buildKind === 'fire' ? 'campfire' : 'barricade'}) — click to place · X switch · B exit`
+  const hint = building ? `BUILD MODE (${BUILD[buildKind].name}) — click to place · X switch · B exit`
     : (isNight() ? 'Night. Get inside and barricade. The dead are hungry.' : 'E interact · C craft · B build · G/H/J use items');
   ctx.font = '500 13px system-ui, sans-serif';
   ctx.textAlign = 'center';
@@ -1529,7 +1631,7 @@ mmCanvas.width = WW; mmCanvas.height = WH;
 const mmCtx = mmCanvas.getContext('2d');
 let mmLast = -99;
 const MM_COL = { grass: [77, 125, 57], dirt: [123, 91, 59], sand: [205, 182, 126], water: [36, 96, 140] };
-const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74], 9: [255, 130, 50] };
+const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74], 9: [255, 130, 50], 10: [150, 150, 158], 11: [120, 84, 44] };
 
 function buildMinimap() {
   const img = mmCtx.createImageData(WW, WH);
@@ -1659,7 +1761,7 @@ window.addEventListener('keydown', (e) => {
       case 'e': interact(); return;
       case 'r': reload(); return;
       case '1': case '2': case '3': case '4': case '5': selectWeapon(parseInt(k, 10) - 1); return;
-      case 'x': if (building) { buildKind = buildKind === 'wall' ? 'fire' : 'wall'; toast(buildKind === 'fire' ? 'Build: campfire (3 wood, 1 stone).' : 'Build: barricade (4 wood).'); } return;
+      case 'x': if (building) { cycleBuild(); } return;
       case 'k': consume('bandage'); return;
       case 'g': consume('food'); return;
       case 'h': consume('water'); return;
