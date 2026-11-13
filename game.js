@@ -1778,7 +1778,12 @@ window.addEventListener('keyup', (e) => {
   keys[k] = false;
   keys.shift = e.shiftKey;
 });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+// Losing focus (alt-tab, clicking another window) pauses the run and clears held input.
+window.addEventListener('blur', () => {
+  for (const k in keys) keys[k] = false;
+  mouse.held = false;
+  if (state === 'play') { state = 'pause'; showPanel('pause'); }
+});
 
 function selectWeapon(i) {
   if (i === player.weapon) return;
