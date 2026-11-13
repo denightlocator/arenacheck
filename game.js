@@ -25,6 +25,7 @@ const ZTYPES = {
   walker: { hp: 60, sp: 58, dmg: 10, cd: 1.0, r: 13, col: '#5d7d4b' },
   runner: { hp: 32, sp: 132, dmg: 7, cd: 0.7, r: 12, col: '#86644a' },
   brute:  { hp: 190, sp: 44, dmg: 22, cd: 1.4, r: 19, col: '#4a5866' },
+  spitter: { hp: 45, sp: 70, dmg: 12, cd: 2.2, r: 13, col: '#6f8a3a', ranged: true, range: 300 },
 };
 
 const RECIPES = [
@@ -366,7 +367,8 @@ function moveEntity(e, dx, dy) {
 let state = 'menu';
 let world = null;
 let hours = 8, day = 1, weather = 'clear';
-let zombies = [], bullets = [], parts = [], decals = [], drops = [], toasts = [];
+let zombies = [], bullets = [], parts = [], decals = [], drops = [], toasts = [], acid = [];
+let killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 };
 let spawnT = 0, kills = 0, shake = 0, groanT = 0, time = 0, building = false, gatherCD = 0;
 let buildKind = 'wall';   // 'wall' | 'fire'
 const SAVE_KEY = 'deadhollow_save';
@@ -409,8 +411,8 @@ function newGame() {
     mags: { pistol: 12, shotgun: 6 },
     inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, ammo: 24, shells: 6 },
   });
-  zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
-  hours = 8; day = 1; kills = 0; spawnT = 4; building = false; gatherCD = 0;
+  zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
+  hours = 8; day = 1; kills = 0; killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 }; spawnT = 4; building = false; gatherCD = 0;
   shake = 0; groanT = 0; mouse.pressed = false;
   player.reloadW = 1; player.moving = false; player.bob = 0;
   cam.x = player.x; cam.y = player.y;
@@ -431,6 +433,7 @@ function burst(x, y, color, n, speed = 90, size = 2.5) {
 /* ============================== ZOMBIES ============================== */
 function pickType() {
   const r = Math.random();
+  if (day >= 4 && r < 0.2) return 'spitter';
   if (day >= 3 && r < 0.14) return 'brute';
   if (day >= 2 && r < 0.4) return 'runner';
   return 'walker';
@@ -445,6 +448,7 @@ function spawnZombie() {
   const k = 1 + 0.06 * (day - 1);
   zombies.push({
     type, x, y, r: b.r, sp: b.sp * (1 + 0.02 * (day - 1)), dmg: b.dmg, cd: b.cd, col: b.col,
+    ranged: !!b.ranged, range: b.range || 0,
     hp: b.hp * k, maxHp: b.hp * k, attackCD: 0.3 + Math.random() * 0.5, flash: 0, lunge: 0,
     wob: Math.random() * 6, seed: Math.random() * 1000,
   });
@@ -530,7 +534,16 @@ function updateZombies(dt) {
     let vx = ux + sx * 1.4, vy = uy + sy * 1.4;
     const vl = Math.hypot(vx, vy) || 1; vx /= vl; vy /= vl;
 
-    if (d > z.r + player.r + 4) moveZombie(z, vx * z.sp * dt, vy * z.sp * dt, ux, uy, dt);
+    if (z.ranged && d < z.range && d > 110) {
+      // spitters stop at range and lob acid
+      if (z.attackCD <= 0 && lineClear(z.x, z.y, player.x, player.y)) {
+        z.attackCD = z.cd; z.lunge = 1;
+        const a = Math.atan2(dy, dx), spd = 210;
+        acid.push({ x: z.x, y: z.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 2.5, dmg: z.dmg });
+      }
+    } else if (d > z.r + player.r + 4) {
+      moveZombie(z, vx * z.sp * dt, vy * z.sp * dt, ux, uy, dt);
+    }
 
     if (d < z.r + player.r + 6 && z.attackCD <= 0 && lineClear(z.x, z.y, player.x, player.y)) {
       z.attackCD = z.cd; z.lunge = 1;
@@ -543,6 +556,7 @@ function killZombie(z) {
   const i = zombies.indexOf(z);
   if (i >= 0) zombies.splice(i, 1);
   kills++;
+  killStats[z.type] = (killStats[z.type] || 0) + 1;
   burst(z.x, z.y, '#7d0c0c', 18, 130, 3);
   decals.push({ x: z.x, y: z.y, r: 14 + Math.random() * 12, rot: Math.random() * 6 });
   if (decals.length > 160) decals.shift();
@@ -794,7 +808,7 @@ function craft(index) {
 function saveGame() {
   if (!world || state === 'menu' || state === 'over') return;
   const data = {
-    v: 1, hours, day, weather, kills, buildKind,
+    v: 1, hours, day, weather, kills, buildKind, killStats,
     player: { x: player.x, y: player.y, hp: player.hp, hunger: player.hunger, thirst: player.thirst,
       stamina: player.stamina, weapon: player.weapon, mags: player.mags, inv: player.inv },
     world: {
@@ -816,7 +830,8 @@ function loadGame() {
   Object.assign(player, d.player, { iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0 });
   player.reloadW = player.weapon;
   hours = d.hours; day = d.day; weather = d.weather; kills = d.kills; buildKind = d.buildKind || 'wall';
-  zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
+  killStats = Object.assign({ walker: 0, runner: 0, brute: 0, spitter: 0 }, d.killStats);
+  zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   building = false; gatherCD = 0; spawnT = 6;
   cam.x = player.x; cam.y = player.y;
   toast('Welcome back. Your last run was restored.');
@@ -831,7 +846,8 @@ function gameOver() {
   localStorage.setItem('deadhollow_best', String(best));
   document.getElementById('over-stats').innerHTML =
     `You survived <b>${day}</b> day${day === 1 ? '' : 's'} and killed <b>${kills}</b> zombies.<br>` +
-    `Best run: <b>${best}</b> day${best === 1 ? '' : 's'}.`;
+    `Best run: <b>${best}</b> day${best === 1 ? '' : 's'}.<br>` +
+    `Walkers <b>${killStats.walker}</b> · Runners <b>${killStats.runner}</b> · Brutes <b>${killStats.brute}</b> · Spitters <b>${killStats.spitter}</b>`;
   showPanel('over');
 }
 
@@ -974,6 +990,15 @@ function update(dt) {
     if (p.life <= 0) parts.splice(i, 1);
   }
 
+  // Acid globs fly toward the player and splash on walls
+  for (let i = acid.length - 1; i >= 0; i--) {
+    const a = acid[i];
+    a.life -= dt; a.x += a.vx * dt; a.y += a.vy * dt;
+    let gone = a.life <= 0 || tileSolid(Math.floor(a.x / T), Math.floor(a.y / T));
+    if (!gone && Math.hypot(a.x - player.x, a.y - player.y) < player.r + 4) { hurt(a.dmg); gone = true; }
+    if (gone) { burst(a.x, a.y, '#9be04a', 6, 60, 2); acid.splice(i, 1); }
+  }
+
   // Toasts
   for (let i = toasts.length - 1; i >= 0; i--) { toasts[i].t -= dt; if (toasts[i].t <= 0) toasts.splice(i, 1); }
 
@@ -1064,6 +1089,13 @@ function renderWorld() {
     grd.addColorStop(0, 'rgba(255,240,190,.95)'); grd.addColorStop(1, 'rgba(255,240,190,0)');
     ctx.strokeStyle = grd; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx / sp * tl, b.y - b.vy / sp * tl); ctx.stroke();
+  }
+
+  // Acid globs
+  for (const a of acid) {
+    const gr = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, 9);
+    gr.addColorStop(0, 'rgba(230,255,120,.95)'); gr.addColorStop(1, 'rgba(120,220,40,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(a.x, a.y, 9, 0, Math.PI * 2); ctx.fill();
   }
 
   // Particles
@@ -1581,6 +1613,12 @@ function startNewRun() {
   localStorage.removeItem(SAVE_KEY);
   restart();
 }
+function updateMuteLabel() {
+  document.getElementById('btn-mute').textContent = muted ? 'Sound: Off' : 'Sound: On';
+}
+document.getElementById('btn-mute').addEventListener('click', () => {
+  muted = !muted; updateMuteLabel(); toast(muted ? 'Sound muted' : 'Sound on');
+});
 function continueRun() {
   ac();
   if (loadGame()) startPlay(); else startNewRun();
@@ -1605,7 +1643,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (state === 'over' && (k === 'enter' || k === 'r')) { restart(); return; }
-  if (k === 'm') { muted = !muted; toast(muted ? 'Sound muted' : 'Sound on'); return; }
+  if (k === 'm') { muted = !muted; toast(muted ? 'Sound muted' : 'Sound on'); updateMuteLabel(); return; }
 
   if (state === 'play') {
     switch (k) {
