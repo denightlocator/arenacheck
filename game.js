@@ -369,6 +369,8 @@ let hours = 8, day = 1, weather = 'clear';
 let zombies = [], bullets = [], parts = [], decals = [], drops = [], toasts = [];
 let spawnT = 0, kills = 0, shake = 0, groanT = 0, time = 0, building = false, gatherCD = 0;
 let buildKind = 'wall';   // 'wall' | 'fire'
+const SAVE_KEY = 'deadhollow_save';
+let saveT = 15;
 const cam = { x: 0, y: 0 };
 const mouse = { x: 0, y: 0, pressed: false };
 const keys = {};
@@ -788,8 +790,42 @@ function craft(index) {
   renderRecipes();
 }
 
+// ---------- Save / continue ----------
+function saveGame() {
+  if (!world || state === 'menu' || state === 'over') return;
+  const data = {
+    v: 1, hours, day, weather, kills, buildKind,
+    player: { x: player.x, y: player.y, hp: player.hp, hunger: player.hunger, thirst: player.thirst,
+      stamina: player.stamina, weapon: player.weapon, mags: player.mags, inv: player.inv },
+    world: {
+      ground: Array.from(world.ground), obs: Array.from(world.obs),
+      hp: [...world.hp], chests: [...world.chests], fires: [...world.fires], houses: world.houses,
+    },
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* storage full or blocked */ }
+}
+
+function loadGame() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { d = null; }
+  if (!d || d.v !== 1) return false;
+  world = {
+    ground: Uint8Array.from(d.world.ground), obs: Uint8Array.from(d.world.obs),
+    hp: new Map(d.world.hp), chests: new Map(d.world.chests), fires: new Map(d.world.fires), houses: d.world.houses,
+  };
+  Object.assign(player, d.player, { iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0 });
+  player.reloadW = player.weapon;
+  hours = d.hours; day = d.day; weather = d.weather; kills = d.kills; buildKind = d.buildKind || 'wall';
+  zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
+  building = false; gatherCD = 0; spawnT = 6;
+  cam.x = player.x; cam.y = player.y;
+  toast('Welcome back. Your last run was restored.');
+  return true;
+}
+
 function gameOver() {
   if (state !== 'play') return;
+  localStorage.removeItem(SAVE_KEY);
   state = 'over';
   const best = Math.max(day, parseInt(localStorage.getItem('deadhollow_best') || '0', 10));
   localStorage.setItem('deadhollow_best', String(best));
@@ -940,6 +976,10 @@ function update(dt) {
 
   // Toasts
   for (let i = toasts.length - 1; i >= 0; i--) { toasts[i].t -= dt; if (toasts[i].t <= 0) toasts.splice(i, 1); }
+
+  // Autosave every 15 seconds of play
+  saveT -= dt;
+  if (saveT <= 0) { saveT = 15; saveGame(); }
 
   // Camera
   const k = Math.min(1, dt * 9);
@@ -1537,7 +1577,17 @@ function restart() {
   startPlay();
 }
 
-document.getElementById('btn-start').addEventListener('click', () => { restart(); });
+function startNewRun() {
+  localStorage.removeItem(SAVE_KEY);
+  restart();
+}
+function continueRun() {
+  ac();
+  if (loadGame()) startPlay(); else startNewRun();
+}
+document.getElementById('btn-start').addEventListener('click', () => { startNewRun(); });
+document.getElementById('btn-continue').addEventListener('click', () => { continueRun(); });
+window.addEventListener('beforeunload', () => { saveGame(); });
 document.getElementById('btn-resume').addEventListener('click', () => { startPlay(); });
 document.getElementById('btn-restart2').addEventListener('click', () => { restart(); });
 document.getElementById('btn-restart').addEventListener('click', () => { restart(); });
@@ -1550,7 +1600,10 @@ window.addEventListener('keydown', (e) => {
   keys.shift = e.shiftKey;
   if (e.repeat) return;
 
-  if (state === 'menu' && (k === 'enter' || k === ' ')) { restart(); return; }
+  if (state === 'menu' && (k === 'enter' || k === ' ')) {
+    if (localStorage.getItem(SAVE_KEY)) continueRun(); else startNewRun();
+    return;
+  }
   if (state === 'over' && (k === 'enter' || k === 'r')) { restart(); return; }
   if (k === 'm') { muted = !muted; toast(muted ? 'Sound muted' : 'Sound on'); return; }
 
@@ -1621,6 +1674,7 @@ makeSprites();
 newGame();
 state = 'menu';
 showPanel('menu');
+if (localStorage.getItem(SAVE_KEY)) document.getElementById('btn-continue').hidden = false;
 mouse.x = cssW / 2; mouse.y = cssH / 2;
 requestAnimationFrame((t) => { last = t; frame(t); });
 })();
