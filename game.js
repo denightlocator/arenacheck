@@ -388,8 +388,11 @@ function sunsetAmt() {
 const isBlood = () => day % 5 === 0;
 
 function toast(msg) {
+  // Repeated messages refresh the existing toast instead of stacking up.
+  const dup = toasts.find((t) => t.text === msg);
+  if (dup) { dup.t = 4.5; return; }
   toasts.push({ text: msg, t: 4.5 });
-  if (toasts.length > 6) toasts.shift();
+  if (toasts.length > 5) toasts.shift();
 }
 
 function newGame() {
@@ -402,6 +405,8 @@ function newGame() {
   });
   zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   hours = 8; day = 1; kills = 0; spawnT = 4; building = false; gatherCD = 0;
+  shake = 0; groanT = 0; mouse.pressed = false;
+  player.reloadW = 1; player.moving = false; player.bob = 0;
   cam.x = player.x; cam.y = player.y;
   weather = Math.random() < 0.3 ? 'rain' : 'clear';
   toast('You wake in the woods. Find a house and barricade before nightfall.');
@@ -599,7 +604,8 @@ function meleeSwing(w) {
 
 function reload() {
   const w = WEAPONS[player.weapon];
-  if (w.melee || player.reload > 0) return;
+  if (w.melee) { toast('The knife doesn\'t need reloading.'); return; }
+  if (player.reload > 0) return;
   const need = w.mag - player.mags[w.id];
   if (need <= 0) { toast('Magazine already full.'); return; }
   if (player.inv[w.ammo] <= 0) { toast(`No ${w.ammo === 'ammo' ? '9mm rounds' : 'shells'} left.`); return; }
@@ -1348,6 +1354,7 @@ function buildMinimap() {
 function renderMinimap() {
   if (time - mmLast > 0.5) { buildMinimap(); mmLast = time; }
   const size = 170, W = cssW, H = cssH;
+  if (W < 980) return; // too narrow: would overlap the hotbar
   const x0 = W - size - 20, y0 = H - size - 20;
   ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(ctx, x0 - 6, y0 - 6, size + 12, size + 12, 10); ctx.fill();
   ctx.imageSmoothingEnabled = false;
