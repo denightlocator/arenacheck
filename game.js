@@ -11,8 +11,10 @@ const DAY_SEC = 240;          // real seconds per in-game day
 const SS = 2;                 // sprite supersampling
 
 const G = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3 };
-const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9, SWALL: 10, SPIKES: 11, LANTERN: 12 };
-const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1];
+const O = { NONE: 0, TREE: 1, ROCK: 2, HWALL: 3, PWALL: 4, FLOOR: 5, BUSH: 6, DOOR: 7, CHEST: 8, FIRE: 9, SWALL: 10, SPIKES: 11, LANTERN: 12,
+  GATE: 13, GATEOPEN: 14, TRIPWIRE: 15, BEARTRAP: 16, BARREL: 17, GARDEN: 18, BEDROLL: 19, BELL: 20, TURRET: 21, SANDBAG: 22 };
+const SOLIDOBS = [0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1];
+const FLAT_OBS = new Set([O.TRIPWIRE, O.BEARTRAP, O.GARDEN, O.BEDROLL]); // drawn under creatures
 // Everything the player can build: name, cost, and what it becomes in the world.
 const BUILD = {
   wall: { name: 'Barricade', cost: { wood: 4 }, hp: 100, desc: 'Cheap wooden barricade' },
@@ -20,8 +22,17 @@ const BUILD = {
   swall: { name: 'Stone Wall', cost: { stone: 5, wood: 1 }, hp: 250, desc: 'Tough: 250 HP' },
   spikes: { name: 'Spike Trap', cost: { wood: 3, scrap: 1 }, desc: 'Hurts zombies that step on it' },
   lantern: { name: 'Lantern Post', cost: { wood: 2, scrap: 1 }, desc: 'Lights the dark at night, never burns out' },
+  gate: { name: 'Wooden Gate', cost: { wood: 4, scrap: 1 }, desc: 'Solid gate. E opens and closes it' },
+  sandbag: { name: 'Sandbag Wall', cost: { cloth: 4, stone: 2 }, desc: 'Heavy sandbags: 160 HP' },
+  tripwire: { name: 'Tripwire', cost: { cloth: 3, scrap: 1 }, desc: 'Slows zombies that cross it' },
+  beartrap: { name: 'Bear Trap', cost: { stone: 3, scrap: 3 }, desc: 'Stuns and hurts zombies. Resets after 8 s' },
+  barrel: { name: 'Rain Barrel', cost: { wood: 5, stone: 2 }, desc: 'Collects 1 water every 90 s, holds 4. E takes it' },
+  garden: { name: 'Garden Plot', cost: { wood: 3, cloth: 2 }, desc: 'Grows 2 food every 2 minutes. E harvests' },
+  bedroll: { name: 'Bedroll', cost: { cloth: 4, wood: 1 }, desc: 'E to rest: +35 HP when no zombies are near (2 min)' },
+  bell: { name: 'Dinner Bell', cost: { scrap: 4, wood: 1 }, desc: 'E rings it to lure distant zombies for 12 s' },
+  turret: { name: 'Turret', cost: { scrap: 8, stone: 4, wood: 2 }, desc: 'Auto-fires at zombies. E loads 10 of your 9mm' },
 };
-const BUILD_ORDER = ['wall', 'fire', 'swall', 'spikes', 'lantern'];
+const BUILD_ORDER = ['wall', 'fire', 'swall', 'spikes', 'lantern', 'gate', 'sandbag', 'tripwire', 'beartrap', 'barrel', 'garden', 'bedroll', 'bell', 'turret'];
 
 const WEAPONS = [
   { id: 'knife', name: 'Hunting Knife', melee: true, cd: 0.42, range: 44, arc: 1.25, dmg: 34 },
@@ -159,6 +170,79 @@ function makeStructureSprites() {
     g.fillStyle = '#ffd27a'; g.beginPath(); g.arc(24, 12, 6, 0, 7); g.fill();
     g.fillStyle = 'rgba(255,255,220,.8)'; g.beginPath(); g.arc(23, 11, 2.5, 0, 7); g.fill();
     g.fillStyle = '#3a3f47'; g.beginPath(); g.moveTo(16, 10); g.lineTo(24, 2); g.lineTo(32, 10); g.closePath(); g.fill();
+  });
+  SPR.gate = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 20, 4, 0.3);
+    g.fillStyle = '#6b4a2a'; g.fillRect(3, 10, 5, 34); g.fillRect(40, 10, 5, 34);
+    g.fillStyle = '#8a6238';
+    g.fillRect(3, 14, 42, 4); g.fillRect(3, 24, 42, 4); g.fillRect(3, 34, 42, 4);
+    g.strokeStyle = '#4a2f18'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(6, 14); g.lineTo(43, 38); g.stroke();
+  });
+  SPR.gateOpen = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 20, 4, 0.3);
+    g.fillStyle = '#6b4a2a'; g.fillRect(3, 10, 5, 34); g.fillRect(40, 10, 5, 34);
+    g.fillStyle = '#8a6238';
+    g.beginPath(); g.moveTo(6, 12); g.lineTo(14, 16); g.lineTo(14, 44); g.lineTo(6, 44); g.closePath(); g.fill();
+  });
+  SPR.tripwire = sprite(T, T, (g) => {
+    g.fillStyle = '#5a4226'; g.fillRect(4, 26, 4, 10); g.fillRect(40, 30, 4, 10);
+    g.strokeStyle = 'rgba(214,214,206,.85)'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(6, 28); g.quadraticCurveTo(24, 22, 42, 32); g.stroke();
+  });
+  SPR.beartrap = sprite(T, T, (g) => {
+    shadowEl(g, 24, 30, 14, 4, 0.25);
+    g.fillStyle = '#3e434a'; g.beginPath(); g.ellipse(24, 30, 10, 4, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#a4abb4'; g.lineWidth = 3;
+    g.beginPath(); g.arc(24, 28, 13, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    g.beginPath(); g.arc(24, 32, 13, Math.PI * 0.15, Math.PI * 0.85); g.stroke();
+  });
+  SPR.beartrapSprung = sprite(T, T, (g) => {
+    g.fillStyle = '#3e434a'; g.beginPath(); g.ellipse(24, 30, 10, 4, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#7a4a2a'; g.fillRect(19, 27, 10, 3);
+  });
+  SPR.barrel = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 15, 5, 0.35);
+    g.fillStyle = '#2d5d86'; g.fillRect(12, 14, 24, 30);
+    g.fillStyle = '#1c3d5a'; g.fillRect(12, 20, 24, 3); g.fillRect(12, 36, 24, 3);
+    g.fillStyle = '#4c84b4'; g.beginPath(); g.ellipse(24, 14, 12, 4, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(15, 22, 3, 12);
+  });
+  SPR.garden = sprite(T, T, (g) => {
+    g.fillStyle = '#4a3420'; g.fillRect(3, 8, 42, 34);
+    g.fillStyle = '#5c4129';
+    for (let r = 0; r < 3; r++) g.fillRect(3, 14 + r * 10, 42, 3);
+    g.fillStyle = '#4fa34a';
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) { g.beginPath(); g.arc(10 + c * 10, 17 + r * 10, 3, 0, Math.PI * 2); g.fill(); }
+  });
+  SPR.bedroll = sprite(T, T, (g) => {
+    g.fillStyle = '#3d5a3a'; g.fillRect(8, 14, 32, 20);
+    g.fillStyle = '#e0d6b8'; g.fillRect(8, 14, 7, 20);
+    g.fillStyle = '#2a3f28'; g.fillRect(8, 14, 32, 3); g.fillRect(8, 31, 32, 3);
+  });
+  SPR.bell = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 9, 3, 0.35);
+    g.fillStyle = '#4a4a4a'; g.fillRect(22, 28, 4, 16);
+    g.fillStyle = '#c9a24a';
+    g.beginPath(); g.moveTo(14, 30); g.quadraticCurveTo(14, 12, 24, 10); g.quadraticCurveTo(34, 12, 34, 30); g.closePath(); g.fill();
+    g.fillStyle = '#8a6a22'; g.fillRect(12, 29, 24, 4);
+    g.fillStyle = '#fff3c0'; g.beginPath(); g.arc(20, 18, 2, 0, Math.PI * 2); g.fill();
+  });
+  SPR.turret = sprite(T, T, (g) => {
+    shadowEl(g, 24, 40, 15, 5, 0.35);
+    g.fillStyle = '#3a414b'; g.fillRect(11, 26, 26, 14);
+    g.fillStyle = '#5a6472'; g.beginPath(); g.arc(24, 24, 9, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#2a2f36'; g.fillRect(24, 21, 18, 6);
+    g.fillStyle = '#ffb347'; g.fillRect(40, 22, 2, 3);
+  });
+  SPR.sandbag = sprite(T, T, (g) => {
+    shadowEl(g, 24, 44, 20, 4, 0.3);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
+      const ox = (r % 2) * 5;
+      g.fillStyle = (r + c) % 2 ? '#b89a62' : '#a88a55';
+      g.beginPath(); g.ellipse(7 + c * 11 + ox, 14 + r * 10, 7, 5, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(60,45,20,.45)'; g.lineWidth = 1; g.stroke();
+    }
   });
   SPR.spikes = sprite(T, T, (g) => {
     // wooden base with sharpened stakes
@@ -342,7 +426,7 @@ function makeNoise(scale) {
 }
 
 function generate() {
-  const W = { ground: new Uint8Array(WW * WH), obs: new Uint8Array(WW * WH), hp: new Map(), chests: new Map(), fires: new Map(), houses: [] };
+  const W = { ground: new Uint8Array(WW * WH), obs: new Uint8Array(WW * WH), hp: new Map(), chests: new Map(), fires: new Map(), houses: [], machines: new Map() };
   const nF = makeNoise(9), nL = makeNoise(13), nR = makeNoise(7), nD = makeNoise(6);
   const cx = WW / 2, cy = WH / 2;
 
@@ -423,6 +507,7 @@ let zombies = [], bullets = [], parts = [], decals = [], drops = [], toasts = []
 let killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 };
 let spawnT = 0, kills = 0, shake = 0, groanT = 0, time = 0, building = false, gatherCD = 0;
 let buildKind = 'wall';   // 'wall' | 'fire'
+let lure = null;          // { x, y, t } while the dinner bell is ringing
 const SAVE_KEY = 'deadhollow_save';
 const DIFF = {
   easy: { label: 'Easy', hp: 0.7, dmg: 0.7, spawn: 1.4 },
@@ -474,7 +559,7 @@ function newGame() {
     mags: { pistol: 12, shotgun: 6 },
     inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, bandage: 0, axe: 0, rifle: 0, ammo: 24, shells: 6 },
   });
-  zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
+  lure = null; zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   hours = 8; day = 1; kills = 0; killStats = { walker: 0, runner: 0, brute: 0, spitter: 0 }; spawnT = 4; building = false; gatherCD = 0;
   shake = 0; groanT = 0; mouse.pressed = false;
   player.reloadW = 1; player.moving = false; player.bob = 0;
@@ -557,7 +642,8 @@ function moveZombie(z, mx, my, ux, uy, dt) {
   // bang on player-built walls in the way
   if (z.attackCD <= 0) {
     const tx = Math.floor((z.x + ux * (z.r + 10)) / T), ty = Math.floor((z.y + uy * (z.r + 10)) / T);
-    if (inb(tx, ty) && (world.obs[idx(tx, ty)] === O.PWALL || world.obs[idx(tx, ty)] === O.SWALL)) {
+    const wo = inb(tx, ty) ? world.obs[idx(tx, ty)] : -1;
+    if (wo === O.PWALL || wo === O.SWALL || wo === O.GATE || wo === O.SANDBAG) {
       damageWall(tx, ty, z.dmg * 1.5);
       z.attackCD = z.cd; z.lunge = 1;
     }
@@ -580,8 +666,15 @@ function updateZombies(dt) {
     z.attackCD -= dt; z.flash -= dt;
     z.wob += dt * (z.type === 'runner' ? 14 : 8);
     z.lunge = Math.max(0, z.lunge - dt * 3);
+    z.slowT = Math.max(0, (z.slowT || 0) - dt);
+    z.stunT = Math.max(0, (z.stunT || 0) - dt);
+    if (z.stunT > 0) continue;
     const dx = player.x - z.x, dy = player.y - z.y, d = Math.hypot(dx, dy) || 1;
-    const ux = dx / d, uy = dy / d;
+    // A ringing dinner bell pulls zombies that are far from the player
+    const lured = !!lure && d > 200 && Math.hypot(lure.x - z.x, lure.y - z.y) < 700;
+    const gx = lured ? lure.x - z.x : dx, gy = lured ? lure.y - z.y : dy;
+    const gd = Math.hypot(gx, gy) || 1;
+    const ux = gx / gd, uy = gy / gd;
 
     // separation from other zombies
     let sx = 0, sy = 0;
@@ -604,8 +697,9 @@ function updateZombies(dt) {
         const a = Math.atan2(dy, dx), spd = 210;
         acid.push({ x: z.x, y: z.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 2.5, dmg: z.dmg });
       }
-    } else if (d > z.r + player.r + 4) {
-      moveZombie(z, vx * z.sp * dt, vy * z.sp * dt, ux, uy, dt);
+    } else if (lured ? gd > z.r + 14 : d > z.r + player.r + 4) {
+      const spd = z.sp * (z.slowT > 0 ? 0.45 : 1);
+      moveZombie(z, vx * spd * dt, vy * spd * dt, ux, uy, dt);
     }
 
     if (d < z.r + player.r + 6 && z.attackCD <= 0 && lineClear(z.x, z.y, player.x, player.y)) {
@@ -660,6 +754,37 @@ function chestLoot() {
 }
 
 /* ============================== ACTIONS ============================== */
+// Stateful builds: rain barrels fill, gardens grow, turrets shoot, cooldowns tick.
+function updateMachines(dt) {
+  for (const [i, m] of world.machines) {
+    const o = world.obs[i];
+    if (m.cool > 0) m.cool -= dt;
+    if (o === O.BARREL) {
+      m.t += dt;
+      if (m.t >= 90) { m.t = 0; m.n = Math.min(4, m.n + 1); }
+    } else if (o === O.GARDEN && !m.ready) {
+      m.t += dt;
+      if (m.t >= 120) { m.t = 0; m.ready = true; }
+    } else if (o === O.TURRET) {
+      m.cd = Math.max(0, (m.cd || 0) - dt);
+      if (m.cd <= 0 && m.n > 0) {
+        const cx = (i % WW) * T + T / 2, cy = Math.floor(i / WW) * T + T / 2;
+        let best = null, bd = T * 6.5;
+        for (const z of zombies) {
+          const d = Math.hypot(z.x - cx, z.y - cy);
+          if (d < bd) { bd = d; best = z; }
+        }
+        if (best) {
+          const a = Math.atan2(best.y - cy, best.x - cx);
+          m.cd = 0.5; m.n--;
+          bullets.push({ x: cx + Math.cos(a) * 30, y: cy + Math.sin(a) * 30, vx: Math.cos(a) * 900, vy: Math.sin(a) * 900, life: 0.5, dmg: 14, home: i });
+          sfx.gun(0.35);
+        }
+      }
+    }
+  }
+}
+
 function fire() {
   const w = WEAPONS[player.weapon];
   if (player.cool > 0 || player.reload > 0) return;
@@ -786,6 +911,63 @@ function interact() {
       gatherCD = 0.3;
       return;
     }
+    if (o === O.GATE || o === O.GATEOPEN) {
+      const closing = o === O.GATEOPEN;
+      world.obs[i] = closing ? O.GATE : O.GATEOPEN;
+      const jammed = closing && (blockedAt(player.x, player.y, player.r) ||
+        zombies.some((z) => Math.floor(z.x / T) === tx && Math.floor(z.y / T) === ty));
+      if (jammed) { world.obs[i] = O.GATEOPEN; toast('Something is in the way of the gate.'); }
+      else toast(closing ? 'Gate closed.' : 'Gate opened.');
+      sfx.click(); gatherCD = 0.3;
+      return;
+    }
+    if (o === O.BARREL) {
+      const m = world.machines.get(i);
+      if (m && m.n > 0) { player.inv.water += m.n; toast(`Collected ${m.n} water from the barrel.`); m.n = 0; }
+      else toast('The rain barrel is empty. It collects 1 water every 90 s.');
+      gatherCD = 0.3;
+      return;
+    }
+    if (o === O.GARDEN) {
+      const m = world.machines.get(i);
+      if (m && m.ready) { m.ready = false; m.t = 0; player.inv.food += 2; toast('Harvested 2 food.'); }
+      else toast(`Still growing. ${Math.max(0, Math.ceil(120 - (m ? m.t : 0)))} s left.`);
+      gatherCD = 0.3;
+      return;
+    }
+    if (o === O.BEDROLL) {
+      const m = world.machines.get(i);
+      const cx = tx * T + T / 2, cy = ty * T + T / 2;
+      if (zombies.some((z) => Math.hypot(z.x - cx, z.y - cy) < T * 10)) toast('Too dangerous to rest with zombies this close.');
+      else if (m && m.cool > 0) toast(`You can rest here again in ${Math.ceil(m.cool)} s.`);
+      else {
+        player.hp = Math.min(100, player.hp + 35);
+        if (m) m.cool = 120;
+        burst(cx, cy, '#9fd08a', 8, 60);
+        toast('You rest and recover 35 HP.');
+      }
+      gatherCD = 0.3;
+      return;
+    }
+    if (o === O.BELL) {
+      lure = { x: tx * T + T / 2, y: ty * T + T / 2, t: 12 };
+      tone(660, 0.5, 0.18, 'triangle', 520);
+      toast('The bell rings. Zombies come running for 12 s.');
+      gatherCD = 0.5;
+      return;
+    }
+    if (o === O.TURRET) {
+      const m = world.machines.get(i);
+      if (!m) return;
+      if (player.inv.ammo <= 0) toast('You have no 9mm to load.');
+      else {
+        const n = Math.min(10, player.inv.ammo, 20 - m.n);
+        if (n <= 0) toast('The turret is full (20 rounds).');
+        else { player.inv.ammo -= n; m.n += n; toast(`Turret loaded: ${m.n} rounds.`); }
+      }
+      gatherCD = 0.3;
+      return;
+    }
     if (o === O.CHEST) {
       const c = world.chests.get(i);
       if (!c || c.looted) { toast('The chest is empty.'); return; }
@@ -847,6 +1029,40 @@ function tryBuild() {
   } else if (buildKind === 'spikes') {
     world.obs[i] = O.SPIKES;
     toast('Spike trap set. Zombies that step on it take damage.');
+  } else if (buildKind === 'gate') {
+    world.obs[i] = O.GATE;
+    world.hp.set(i, 120);
+    toast('Gate hung. Press E to open and close it.');
+  } else if (buildKind === 'sandbag') {
+    world.obs[i] = O.SANDBAG;
+    world.hp.set(i, 160);
+    toast('Sandbags stacked.');
+  } else if (buildKind === 'tripwire') {
+    world.obs[i] = O.TRIPWIRE;
+    toast('Tripwire strung. Zombies that cross it slow down.');
+  } else if (buildKind === 'beartrap') {
+    world.obs[i] = O.BEARTRAP;
+    world.machines.set(i, { cool: 0 });
+    toast('Bear trap set in the grass.');
+  } else if (buildKind === 'barrel') {
+    world.obs[i] = O.BARREL;
+    world.machines.set(i, { n: 0, t: 0 });
+    toast('Rain barrel placed. It collects water over time.');
+  } else if (buildKind === 'garden') {
+    world.obs[i] = O.GARDEN;
+    world.machines.set(i, { t: 0, ready: false });
+    toast('Garden planted. Food is ready in 2 minutes.');
+  } else if (buildKind === 'bedroll') {
+    world.obs[i] = O.BEDROLL;
+    world.machines.set(i, { cool: 0 });
+    toast('Bedroll laid out. Press E to rest.');
+  } else if (buildKind === 'bell') {
+    world.obs[i] = O.BELL;
+    toast('Dinner bell hung. Press E to ring it.');
+  } else if (buildKind === 'turret') {
+    world.obs[i] = O.TURRET;
+    world.machines.set(i, { n: 0, cd: 0 });
+    toast('Turret mounted. Press E to load 9mm ammo.');
   } else {
     world.obs[i] = O.PWALL;
     world.hp.set(i, 100);
@@ -893,7 +1109,7 @@ function saveGame() {
       stamina: player.stamina, weapon: player.weapon, mags: player.mags, inv: player.inv },
     world: {
       ground: Array.from(world.ground), obs: Array.from(world.obs),
-      hp: [...world.hp], chests: [...world.chests], fires: [...world.fires], houses: world.houses,
+      hp: [...world.hp], chests: [...world.chests], fires: [...world.fires], houses: world.houses, machines: [...world.machines],
     },
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* storage full or blocked */ }
@@ -906,12 +1122,13 @@ function loadGame() {
   world = {
     ground: Uint8Array.from(d.world.ground), obs: Uint8Array.from(d.world.obs),
     hp: new Map(d.world.hp), chests: new Map(d.world.chests), fires: new Map(d.world.fires), houses: d.world.houses,
+    machines: new Map(d.world.machines || []),
   };
   Object.assign(player, d.player, { iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0 });
   player.reloadW = player.weapon;
   hours = d.hours; day = d.day; weather = d.weather; kills = d.kills; buildKind = d.buildKind || 'wall';
   killStats = Object.assign({ walker: 0, runner: 0, brute: 0, spitter: 0 }, d.killStats);
-  zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
+  lure = null; zombies = []; acid = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   building = false; gatherCD = 0; spawnT = 6;
   cam.x = player.x; cam.y = player.y;
   toast('Welcome back. Your last run was restored.');
@@ -1051,7 +1268,8 @@ function update(dt) {
     const steps = 3;
     for (let s = 0; s < steps && !dead; s++) {
       b.x += (b.vx * dt) / steps; b.y += (b.vy * dt) / steps;
-      if (tileSolid(Math.floor(b.x / T), Math.floor(b.y / T))) {
+      const bh = idx(Math.floor(b.x / T), Math.floor(b.y / T));
+      if (tileSolid(Math.floor(b.x / T), Math.floor(b.y / T)) && bh !== b.home) {
         dead = true;
         burst(b.x, b.y, '#d8d0c0', 3, 60, 1.5);
         break;
@@ -1074,6 +1292,9 @@ function update(dt) {
     if (p.life <= 0) parts.splice(i, 1);
   }
 
+  updateMachines(dt);
+  if (lure) { lure.t -= dt; if (lure.t <= 0) lure = null; }
+
   // Spike traps hurt zombies standing on them
   for (const z of [...zombies]) {
     z.spikeCD = (z.spikeCD || 0) - dt;
@@ -1081,6 +1302,16 @@ function update(dt) {
     if (inb(tx, ty) && world.obs[idx(tx, ty)] === O.SPIKES && z.spikeCD <= 0) {
       z.spikeCD = 0.8;
       hitZombie(z, 18, 0);
+    }
+    if (inb(tx, ty)) {
+      const ti = idx(tx, ty), to = world.obs[ti];
+      if (to === O.TRIPWIRE) z.slowT = 1.2;
+      const bm = to === O.BEARTRAP ? world.machines.get(ti) : null;
+      if (bm && bm.cool <= 0) {
+        bm.cool = 8; z.stunT = 1.6;
+        burst(tx * T + T / 2, ty * T + T / 2, '#a4abb4', 10, 90);
+        hitZombie(z, 22, 0);
+      }
     }
   }
 
@@ -1162,7 +1393,7 @@ function renderWorld() {
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
     const i = idx(tx, ty), o = world.obs[i];
     if (o === O.NONE || o === O.FLOOR || o === O.DOOR) continue;
-    items.push({ y: (ty + 1) * T, k: 0, tx, ty, o });
+    items.push({ y: FLAT_OBS.has(o) ? ty * T : (ty + 1) * T, k: 0, tx, ty, o });
   }
   for (const z of zombies) if (z.x > L - 60 && z.x < R + 60 && z.y > Tp - 60 && z.y < B + 60) items.push({ y: z.y, k: 1, e: z });
   items.push({ y: player.y, k: 2 });
@@ -1258,6 +1489,36 @@ function drawObstacle(tx, ty, o) {
     }
     case O.LANTERN: {
       blit(SPR.lantern, x, y);
+      break;
+    }
+    case O.GATE: blit(SPR.gate, x, y); break;
+    case O.GATEOPEN: blit(SPR.gateOpen, x, y); break;
+    case O.TRIPWIRE: blit(SPR.tripwire, x, y); break;
+    case O.BEARTRAP: {
+      const m = world.machines.get(idx(tx, ty));
+      blit(m && m.cool > 0 ? SPR.beartrapSprung : SPR.beartrap, x, y);
+      break;
+    }
+    case O.BARREL: blit(SPR.barrel, x, y); break;
+    case O.GARDEN: {
+      blit(SPR.garden, x, y);
+      const m = world.machines.get(idx(tx, ty));
+      if (m && m.ready) {
+        ctx.fillStyle = '#e0453a';
+        for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(x + 10 + k * 9, y + 17 + (k % 2) * 10, 2.5, 0, Math.PI * 2); ctx.fill(); }
+      }
+      break;
+    }
+    case O.BEDROLL: blit(SPR.bedroll, x, y); break;
+    case O.BELL: blit(SPR.bell, x, y); break;
+    case O.TURRET: blit(SPR.turret, x, y); break;
+    case O.SANDBAG: {
+      blit(SPR.sandbag, x, y);
+      const hp = world.hp.get(idx(tx, ty)) ?? 160;
+      if (hp < 160) {
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x + 6, y - 6, T - 12, 4);
+        ctx.fillStyle = '#e0c48a'; ctx.fillRect(x + 6, y - 6, (T - 12) * (hp / 160), 4);
+      }
       break;
     }
     case O.FIRE: {
