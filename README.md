@@ -2,6 +2,12 @@
 
 A top-down zombie survival game that runs in any modern browser. No build step, no dependencies, and no external assets: every sprite, shadow, light, and sound is generated in code.
 
+## Play
+
+- **Online (GitHub Pages):** https://denightlocator.github.io/arenacheck/
+  (Enable it once in the repo: *Settings → Pages → Deploy from a branch →* `arena/57b8766a-arenacheck` */ (root)*.)
+- **Locally:** clone the repo and run the command below.
+
 ## Run it
 
 ```bash
