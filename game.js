@@ -374,7 +374,7 @@ const player = {
   iframe: 0, flash: 0, lastHurt: 99, weapon: 1, cool: 0, reload: 0, reloadW: 1,
   swing: 0, muzzle: 0, aim: 0, moving: false, bob: 0,
   mags: { pistol: 12, shotgun: 6 },
-  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 0 },
+  inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 6 },
 };
 
 function isNight() { return hours < 6 || hours >= 19.5; }
@@ -398,7 +398,7 @@ function newGame() {
     x: WW * T / 2, y: WH * T / 2, hp: 100, hunger: 100, thirst: 100, stamina: 100,
     iframe: 0, flash: 0, lastHurt: 99, cool: 0, reload: 0, swing: 0, muzzle: 0, weapon: 1,
     mags: { pistol: 12, shotgun: 6 },
-    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 0 },
+    inv: { wood: 0, stone: 0, cloth: 0, scrap: 0, food: 2, water: 2, medkit: 1, ammo: 24, shells: 6 },
   });
   zombies = []; bullets = []; parts = []; decals = []; drops = []; toasts = [];
   hours = 8; day = 1; kills = 0; spawnT = 4; building = false; gatherCD = 0;
@@ -808,6 +808,10 @@ function update(dt) {
 
   // Spawning
   const night = isNight();
+  if (!night) {
+    // stragglers wander off at dawn
+    zombies = zombies.filter((z) => Math.hypot(z.x - player.x, z.y - player.y) < 900);
+  }
   const blood = night && isBlood();
   const cap = night ? Math.min(60, 10 + day * 4 + (blood ? 12 : 0)) : 3;
   spawnT -= dt;
@@ -1058,6 +1062,7 @@ function drawPlayer() {
   const a = player.aim;
   ctx.save();
   ctx.translate(player.x, player.y);
+  ctx.scale(1.3, 1.3);
   shadowEl(ctx, 2, 6, 14, 7, 0.4);
   ctx.rotate(a);
   const bob = player.moving ? Math.sin(player.bob) * 1.3 : 0;
@@ -1239,10 +1244,8 @@ function renderHUD() {
   if (player.reload > 0) {
     const w = WEAPONS[player.reloadW];
     const pct = 1 - player.reload / w.reload;
-    const cx = W / 2 - total / 2 + player.reloadW * (sw + gap) + sw - 10;
     ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(ctx, W / 2 - total / 2, sy - 12, total, 6, 3); ctx.fill();
     ctx.fillStyle = '#e7cf45'; rr(ctx, W / 2 - total / 2 + 1, sy - 11, (total - 2) * pct, 4, 2); ctx.fill();
-    void cx;
   }
 
   // Items row
@@ -1302,7 +1305,7 @@ function renderHUD() {
   ctx.font = '500 13px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,.75)';
-  ctx.fillText(hint, W / 2, 20);
+  ctx.fillText(hint, W / 2, H - 8);
   ctx.textAlign = 'left';
 
   // Crosshair
@@ -1318,12 +1321,58 @@ function renderHUD() {
   }
 }
 
+/* ============================== MINIMAP ============================== */
+const mmCanvas = document.createElement('canvas');
+mmCanvas.width = WW; mmCanvas.height = WH;
+const mmCtx = mmCanvas.getContext('2d');
+let mmLast = -99;
+const MM_COL = { grass: [77, 125, 57], dirt: [123, 91, 59], sand: [205, 182, 126], water: [36, 96, 140] };
+const OBS_COL = { 1: [30, 72, 36], 2: [125, 130, 138], 3: [110, 90, 70], 4: [200, 160, 110], 5: [140, 105, 70], 6: [70, 110, 50], 7: [160, 120, 80], 8: [230, 184, 74] };
+
+function buildMinimap() {
+  const img = mmCtx.createImageData(WW, WH);
+  for (let y = 0; y < WH; y++) for (let x = 0; x < WW; x++) {
+    const i = idx(x, y), g = world.ground[i], o = world.obs[i];
+    let c;
+    if (g === G.WATER) c = MM_COL.water;
+    else if (g === G.SAND) c = MM_COL.sand;
+    else if (g === G.DIRT) c = MM_COL.dirt;
+    else c = MM_COL.grass;
+    if (o !== O.NONE && OBS_COL[o]) c = OBS_COL[o];
+    const p = i * 4;
+    img.data[p] = c[0]; img.data[p + 1] = c[1]; img.data[p + 2] = c[2]; img.data[p + 3] = 255;
+  }
+  mmCtx.putImageData(img, 0, 0);
+}
+
+function renderMinimap() {
+  if (time - mmLast > 0.5) { buildMinimap(); mmLast = time; }
+  const size = 170, W = cssW, H = cssH;
+  const x0 = W - size - 20, y0 = H - size - 20;
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; rr(ctx, x0 - 6, y0 - 6, size + 12, size + 12, 10); ctx.fill();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mmCanvas, x0, y0, size, size);
+  ctx.imageSmoothingEnabled = true;
+  const s = size / WW;   // minimap px per tile
+  const toMM = (px) => x0 + (px / T) * s, toMMy = (py) => y0 + (py / T) * s;
+  ctx.fillStyle = '#ff4a3d';
+  for (const z of zombies) { ctx.beginPath(); ctx.arc(toMM(z.x), toMMy(z.y), 2, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(toMM(player.x), toMMy(player.y), 3.5, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(toMM(player.x), toMMy(player.y));
+  ctx.lineTo(toMM(player.x) + Math.cos(player.aim) * 8, toMMy(player.y) + Math.sin(player.aim) * 8); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)';
+  ctx.strokeRect(x0, y0, size, size);
+}
+
 function render() {
   if (!world) return;
   renderWorld();
   renderLight();
   renderScreenFX();
   renderHUD();
+  renderMinimap();
 }
 
 /* ============================== UI / INPUT ============================== */
