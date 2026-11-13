@@ -447,9 +447,9 @@ function spawnZombie() {
   const type = pickType();
   const b = ZTYPES[type];
   if (blockedAt(x, y, b.r + 2)) return;
-  const k = 1 + 0.06 * (day - 1);
+  const k = Math.min(4, 1 + 0.06 * (day - 1));
   zombies.push({
-    type, x, y, r: b.r, sp: b.sp * (1 + 0.02 * (day - 1)), dmg: b.dmg, cd: b.cd, col: b.col,
+    type, x, y, r: b.r, sp: b.sp * Math.min(1.6, 1 + 0.02 * (day - 1)), dmg: b.dmg, cd: b.cd, col: b.col,
     ranged: !!b.ranged, range: b.range || 0,
     hp: b.hp * k, maxHp: b.hp * k, attackCD: 0.3 + Math.random() * 0.5, flash: 0, lunge: 0,
     wob: Math.random() * 6, seed: Math.random() * 1000,
@@ -840,17 +840,6 @@ function loadGame() {
   return true;
 }
 
-function victory() {
-  localStorage.removeItem(SAVE_KEY);
-  state = 'won';
-  document.querySelector('#over h2').textContent = 'You Escaped!';
-  document.getElementById('over-stats').innerHTML =
-    `You survived <b>${day - 1}</b> nights and killed <b>${kills}</b> zombies.<br>` +
-    `Walkers <b>${killStats.walker}</b> · Runners <b>${killStats.runner}</b> · Brutes <b>${killStats.brute}</b> · Spitters <b>${killStats.spitter}</b>`;
-  tone(440, 0.6, 0.15, 'triangle', 660);
-  showPanel('over');
-}
-
 function gameOver() {
   if (state !== 'play') return;
   localStorage.removeItem(SAVE_KEY);
@@ -876,7 +865,7 @@ function update(dt) {
   hours += dt * 24 / DAY_SEC;
   if (hours >= 24) {
     hours -= 24; day++;
-    if (day === 10) { victory(); return; }
+    if (day % 5 === 0) toast(`Milestone: ${day} days survived. The dead keep coming.`);
     weather = Math.random() < 0.3 ? 'rain' : 'clear';
     toast(`Day ${day}.${isBlood() ? ' BLOOD MOON tonight!' : ''}`);
   }
@@ -1483,7 +1472,7 @@ function renderHUD() {
   // Top-right status
   const hh = Math.floor(hours), mm = Math.floor((hours - hh) * 60);
   const lines = [
-    `DAY ${day} / 10`,
+    `DAY ${day}`,
     `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}  ${isNight() ? 'NIGHT' : 'DAYLIGHT'}`,
     `${weather === 'rain' ? 'Rain' : 'Clear'}${isBlood() && isNight() ? ' · BLOOD MOON' : ''}`,
     `Kills ${kills}   Zombies ${zombies.length}`,
